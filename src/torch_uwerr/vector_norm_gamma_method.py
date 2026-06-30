@@ -54,7 +54,9 @@ def vector_norm_gamma_method(
     M = widehat_count
     K = R - M
     norm_sq = Q.value
-    norm_sq_stderr_scale = 2 * (M * K) ** 0.5 / R
+    # The Q-history gamma estimate gives the constant-free leading variance;
+    # the full Q_bar variance is larger by R / M.
+    norm_sq_stderr_scale = 2 * K**0.5 / R**0.5
     norm_sq_stderr = norm_sq_stderr_scale * Q.stderr
     norm_sq_stderr_of_stderr = norm_sq_stderr_scale * Q.stderr_of_stderr
     norm = torch.sqrt(norm_sq)
