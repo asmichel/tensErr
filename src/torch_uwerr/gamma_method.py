@@ -8,16 +8,17 @@ import torch
 
 
 @dataclass(frozen=True, slots=True)
-class GammaMethodEstimate:
+class GammaMethodEstimate: # to be renamed in future commit
     """Batch-shaped mean and gamma-method uncertainty tensors."""
 
     value: torch.Tensor
     stderr: torch.Tensor
+    # snr: torch.Tensor # The is just value/stderr, and should be added for convenience
     tau_int: torch.Tensor
     stderr_of_stderr: torch.Tensor
     window: torch.Tensor
-    autocovariance: torch.Tensor | None = None
-    autocorrelation: torch.Tensor | None = None
+    autocovariance: torch.Tensor | None = None # Γ(t)
+    autocorrelation: torch.Tensor | None = None # ⍴(t)
 
 
 def _as_dense_chains(
