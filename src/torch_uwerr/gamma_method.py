@@ -13,13 +13,17 @@ class GammaMethodEstimate: # to be renamed in future commit
 
     value: torch.Tensor
     stderr: torch.Tensor
-    # snr: torch.Tensor # The is just value/stderr, and should be added for convenience
     tau_int: torch.Tensor
     sample_shapes: torch.Tensor
     stderr_of_stderr: torch.Tensor | None
     window: torch.Tensor | None
     autocovariance: torch.Tensor | None = None # Γ(t)
     autocorrelation: torch.Tensor | None = None # ⍴(t)
+
+    @property
+    def snr(self) -> torch.Tensor:
+        """Return the signal-to-noise ratio ``value / stderr``."""
+        return self.value / self.stderr
 
     def __add__(self, other: object) -> GammaMethodEstimate:
         """Return the sample-count-weighted combination of ``self`` and ``other``."""

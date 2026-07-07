@@ -215,6 +215,7 @@ def assert_estimates_close(
     """Assert that every public ``GammaMethodEstimate`` field matches."""
     torch.testing.assert_close(actual.value, expected.value)
     torch.testing.assert_close(actual.stderr, expected.stderr)
+    torch.testing.assert_close(actual.snr, expected.value / expected.stderr)
     torch.testing.assert_close(actual.tau_int, expected.tau_int)
     torch.testing.assert_close(actual.sample_shapes, expected.sample_shapes)
     if expected.stderr_of_stderr is None:
