@@ -9,16 +9,68 @@ import torch
 
 @dataclass(frozen=True, slots=True)
 class GammaMethodEstimate: # to be renamed in future commit
-    """Batch-shaped mean and gamma-method uncertainty tensors."""
+    """Batch-shaped gamma-method estimates with per-replica sample lengths."""
 
     value: torch.Tensor
     stderr: torch.Tensor
-    # snr: torch.Tensor # The is just value/stderr, and should be added for convenience
     tau_int: torch.Tensor
-    stderr_of_stderr: torch.Tensor
-    window: torch.Tensor
+    sample_shapes: torch.Tensor
+    stderr_of_stderr: torch.Tensor | None
+    window: torch.Tensor | None
     autocovariance: torch.Tensor | None = None # Γ(t)
     autocorrelation: torch.Tensor | None = None # ⍴(t)
+
+    @property
+    def snr(self) -> torch.Tensor:
+        """Return the signal-to-noise ratio ``value / stderr``."""
+        return self.value / self.stderr
+
+    def __add__(self, other: object) -> GammaMethodEstimate:
+        """Return the sample-count-weighted combination of ``self`` and ``other``."""
+        if not isinstance(other, GammaMethodEstimate):
+            return NotImplemented
+
+        self_batch_shapes = (self.value.shape, self.stderr.shape, self.tau_int.shape)
+        other_batch_shapes = (other.value.shape, other.stderr.shape, other.tau_int.shape)
+        if len(set(self_batch_shapes + other_batch_shapes)) != 1:
+            raise ValueError(
+                "GammaMethodEstimate batch shapes must match for addition; "
+                f"got self={self_batch_shapes} and other={other_batch_shapes}"
+            )
+
+        self_sample_count = self.sample_shapes.sum().to(dtype=self.value.dtype)
+        other_sample_count = other.sample_shapes.sum().to(dtype=other.value.dtype)
+        total_sample_count = self_sample_count + other_sample_count
+        value = (
+            self_sample_count * self.value
+            + other_sample_count * other.value
+        ) / total_sample_count
+        stderr = torch.sqrt(
+            (self_sample_count * self.stderr).square()
+            + (other_sample_count * other.stderr).square()
+        ) / total_sample_count
+        tau_int = (
+            self_sample_count * self.tau_int
+            + other_sample_count * other.tau_int
+        ) / total_sample_count
+        return GammaMethodEstimate(
+            value=value,
+            stderr=stderr,
+            tau_int=tau_int,
+            sample_shapes=torch.cat((self.sample_shapes, other.sample_shapes)),
+            stderr_of_stderr=None,
+            window=None,
+            autocovariance=None,
+            autocorrelation=None,
+        )
+
+    def __radd__(self, other: object) -> GammaMethodEstimate:
+        """Return ``self`` for Python ``sum``'s zero start or defer addition."""
+        if isinstance(other, int) and other == 0:
+            return self
+        if isinstance(other, GammaMethodEstimate):
+            return other.__add__(self)
+        return NotImplemented
 
 
 def _as_dense_chains(
@@ -159,6 +211,12 @@ def gamma_method_mean(
         value=value,
         stderr=stderr,
         tau_int=tau_int,
+        sample_shapes=torch.full(
+            (chain_count,),
+            sample_count,
+            dtype=torch.long,
+            device=x.device,
+        ),
         stderr_of_stderr=stderr_of_stderr,
         window=window,
         autocovariance=returned_autocovariance,
