@@ -30,6 +30,14 @@ class GammaMethodEstimate: # to be renamed in future commit
         if not isinstance(other, GammaMethodEstimate):
             return NotImplemented
 
+        self_batch_shapes = (self.value.shape, self.stderr.shape, self.tau_int.shape)
+        other_batch_shapes = (other.value.shape, other.stderr.shape, other.tau_int.shape)
+        if len(set(self_batch_shapes + other_batch_shapes)) != 1:
+            raise ValueError(
+                "GammaMethodEstimate batch shapes must match for addition; "
+                f"got self={self_batch_shapes} and other={other_batch_shapes}"
+            )
+
         self_sample_count = self.sample_shapes.sum().to(dtype=self.value.dtype)
         other_sample_count = other.sample_shapes.sum().to(dtype=other.value.dtype)
         total_sample_count = self_sample_count + other_sample_count

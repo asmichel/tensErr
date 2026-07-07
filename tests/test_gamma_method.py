@@ -1,5 +1,6 @@
 """Tests for the public torch_uwerr gamma-method API."""
 
+import pytest
 import torch
 
 from torch_uwerr import (
@@ -436,6 +437,38 @@ def test_estimate_addition_matches_manual_combination_for_batched_histories() ->
     assert actual.value.shape == torch.Size([3])
     assert_combined_diagnostics_absent(actual)
     assert_estimates_close(actual, expected)
+
+
+def test_estimate_addition_rejects_broadcastable_batch_shape_mismatch() -> None:
+    """GammaMethodEstimate addition rejects broadcast-compatible batch mismatches."""
+    scalar_estimate = gamma_method_mean(
+        ar1_replica_history(replica_count=2, sample_count=16, rho=0.6, seed=2024)
+    )
+    singleton_batched_estimate = gamma_method_mean(
+        ar1_batched_replica_history(
+            batch_count=1,
+            replica_count=2,
+            sample_count=16,
+            rho=0.6,
+            seed=2025,
+        )
+    )
+    batched_estimate = gamma_method_mean(
+        ar1_batched_replica_history(
+            batch_count=3,
+            replica_count=2,
+            sample_count=16,
+            rho=0.6,
+            seed=2026,
+        )
+    )
+
+    with pytest.raises(ValueError, match="batch shapes"):
+        _ = scalar_estimate + batched_estimate
+    with pytest.raises(ValueError, match="batch shapes"):
+        _ = batched_estimate + scalar_estimate
+    with pytest.raises(ValueError, match="batch shapes"):
+        _ = singleton_batched_estimate + batched_estimate
 
 
 def test_estimate_addition_matches_manual_combination_for_s_zero() -> None:
