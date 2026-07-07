@@ -15,8 +15,8 @@ class GammaMethodEstimate: # to be renamed in future commit
     stderr: torch.Tensor
     # snr: torch.Tensor # The is just value/stderr, and should be added for convenience
     tau_int: torch.Tensor
-    stderr_of_stderr: torch.Tensor
-    window: torch.Tensor
+    stderr_of_stderr: torch.Tensor | None
+    window: torch.Tensor | None
     autocovariance: torch.Tensor | None = None # Γ(t)
     autocorrelation: torch.Tensor | None = None # ⍴(t)
 
@@ -164,3 +164,103 @@ def gamma_method_mean(
         autocovariance=returned_autocovariance,
         autocorrelation=returned_autocorrelation,
     )
+
+
+class GammaMethodMeanAccumulator:
+    """Accumulate gamma-method mean estimates over complete replica chunks."""
+
+    # __slots__ limits GammaMethodMeanAccumulator to configuration and aggregate state.
+    __slots__ = (
+        "accumulation_dtype",
+        "batch_shape",
+        "gamma_method_s",
+        "replica_count",
+        "sample_count",
+        "_stderr_sq_sum",
+        "_tau_int_sum",
+        "_value_sum",
+    )
+
+    def __init__(
+        self,
+        *,
+        gamma_method_s: float = 2.0,
+        accumulation_dtype: torch.dtype = torch.float64,
+    ) -> None:
+        """Initialize empty weighted aggregates for ``gamma_method_s`` and dtype."""
+        self.gamma_method_s = gamma_method_s
+        self.accumulation_dtype = accumulation_dtype
+        self.replica_count = 0
+        self.sample_count: int | None = None
+        self.batch_shape: torch.Size | None = None
+        self._value_sum: torch.Tensor | None = None
+        self._stderr_sq_sum: torch.Tensor | None = None
+        self._tau_int_sum: torch.Tensor | None = None
+
+    def accumulate(self, chunk: torch.Tensor) -> None:
+        """Add one complete-replica ``chunk`` with shape ``(*batch, R, N)``.
+
+        ``chunk`` is normalized with _as_dense_chains before shape metadata is
+        checked, so one-dimensional chunks are treated as one replica. Only
+        weighted value, stderr, and tau_int aggregates are retained.
+        """
+        x = _as_dense_chains(chunk, self.accumulation_dtype)
+        chunk_batch_shape = x.shape[:-2]
+        chunk_replica_count = x.shape[-2]
+        chunk_sample_count = x.shape[-1]
+
+        is_first_chunk = self.batch_shape is None
+        if (
+            not is_first_chunk
+            and (
+                chunk_batch_shape != self.batch_shape
+                or chunk_sample_count != self.sample_count
+            )
+        ):
+            raise ValueError(
+                "chunk must match the existing batch shape and sample_count"
+            )
+
+        estimate = gamma_method_mean(
+            x,
+            gamma_method_s=self.gamma_method_s,
+            accumulation_dtype=self.accumulation_dtype,
+        )
+        if is_first_chunk:
+            self.batch_shape = chunk_batch_shape
+            self.sample_count = chunk_sample_count
+
+        weighted_value = chunk_replica_count * estimate.value
+        weighted_stderr = chunk_replica_count * estimate.stderr
+        weighted_tau_int = chunk_replica_count * estimate.tau_int
+
+        if self._value_sum is None:
+            self._value_sum = weighted_value.detach()
+            self._stderr_sq_sum = weighted_stderr.square().detach()
+            self._tau_int_sum = weighted_tau_int.detach()
+        else:
+            self._value_sum += weighted_value.detach()
+            self._stderr_sq_sum += weighted_stderr.square().detach()
+            self._tau_int_sum += weighted_tau_int.detach()
+        self.replica_count += chunk_replica_count
+
+    def result(self) -> GammaMethodEstimate:
+        """Return replica-weighted means and omit history-dependent diagnostics."""
+        if (
+            self.replica_count == 0
+            or self._value_sum is None
+            or self._stderr_sq_sum is None
+            or self._tau_int_sum is None
+        ):
+            raise RuntimeError("accumulate() must be called before result()")
+
+        R = self.replica_count
+        return GammaMethodEstimate(
+            value=self._value_sum / R,
+            stderr=torch.sqrt(self._stderr_sq_sum) / R,
+            tau_int=self._tau_int_sum / R,
+            stderr_of_stderr=None,
+            window=None,
+            autocovariance=None,
+            autocorrelation=None,
+        )
