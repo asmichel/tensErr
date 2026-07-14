@@ -18,7 +18,7 @@ ERR_RTOL = 0.05
 # ERR_SIGMAS uses the estimator uncertainty as an integration buffer.
 ERR_SIGMAS = 4.0
 
-# LONG_AR1_ENV enables the slow long-autocorrelation integration test.
+# LONG_AR1_ENV disables long-autocorrelation tests when set to ``0``.
 LONG_AR1_ENV = "TORCH_UWERR_LONG_AR1"
 
 
@@ -246,8 +246,8 @@ def test_ar1_axis_mean() -> None:
 
 
 @pytest.mark.skipif(
-    os.environ.get(LONG_AR1_ENV) != "1",
-    reason=f"set {LONG_AR1_ENV}=1 to run the long-autocorrelation AR(1) test",
+    os.environ.get(LONG_AR1_ENV) == "0",
+    reason=f"set {LONG_AR1_ENV}=0 to skip the long-autocorrelation AR(1) test",
 )
 def test_ar1_long_autocorrelation_projection() -> None:
     """Check that ``m_bar`` projection selects the long-correlation eigendirection."""
@@ -290,4 +290,43 @@ def test_ar1_long_autocorrelation_projection() -> None:
         exact_ratio,
         rtol=0.08,
         atol=0.0,
+    )
+
+
+@pytest.mark.skipif(
+    os.environ.get(LONG_AR1_ENV) == "0",
+    reason=f"set {LONG_AR1_ENV}=0 to skip the long-autocorrelation AR(1) test",
+)
+def test_ar1_long_autocorrelation_zero_norm() -> None:
+    """Check the signed estimate for an exact zero mean with long correlation."""
+    dimension = 6
+    replica_count = 64
+    sample_count = 131_072
+    A, b, exact_m_bar, _ = _ar1_model(
+        eig_range=(0.05, 0.985),
+        dimension=dimension,
+        m_bar=torch.zeros(dimension, dtype=torch.float64),
+        mixing=0.70,
+    )
+    histories = _ar1_history(
+        A,
+        b,
+        exact_m_bar,
+        replica_count,
+        sample_count,
+        seed=20260706,
+    )
+    estimate = _estimate_norm(histories, return_autocorrelation=False)
+    exact_norm = torch.linalg.vector_norm(exact_m_bar)
+
+    assert torch.count_nonzero(exact_m_bar) == 0
+    assert torch.isfinite(estimate.norm)
+    assert torch.isfinite(estimate.norm_stderr)
+    assert torch.isfinite(estimate.norm_snr)
+    assert torch.isfinite(estimate.norm_stderr_of_stderr)
+    torch.testing.assert_close(
+        estimate.norm,
+        exact_norm,
+        rtol=0.0,
+        atol=NORM_SIGMAS * estimate.norm_stderr.item(),
     )

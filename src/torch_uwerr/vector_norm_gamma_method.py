@@ -12,8 +12,8 @@ from torch_uwerr.gamma_method import gamma_method_mean
 class VectorNormGammaMethodEstimate: # to be renamed in future commit
     """VectorNormGammaMethodEstimate holds norm-level estimates for Q_bar."""
 
-    norm: torch.Tensor          # sqrt(Q_bar)
-    norm_stderr: torch.Tensor   # (1/2) * delta(|X|^2) / sqrt(|X|^2)
+    norm: torch.Tensor          # sign(Q_bar) * sqrt(abs(Q_bar))
+    norm_stderr: torch.Tensor   # (1/2) * delta(|X|^2) / abs(norm)
     norm_snr: torch.Tensor      # |2 Q_bar / delta(|X|^2)|
     Q_bar_tau_int: torch.Tensor
     norm_stderr_of_stderr: torch.Tensor
@@ -39,9 +39,9 @@ def vector_norm_gamma_method(
     ``Q_i = widehat_overline_X dot widecheck_X_i``. ``replica_count`` is the
     total replica count ``R`` and ``widehat_count`` is the first-block count
     ``M``; the returned ``widecheck_count`` is ``R - M``. The returned
-    ``norm`` is ``sqrt(Q_bar)``. The gamma-method standard error of ``Q_bar``
-    is scaled to the corresponding ``|X|^2`` standard error before
-    ``norm_stderr`` propagates it through the square root.
+    ``norm`` is ``sign(Q_bar) * sqrt(abs(Q_bar))``. The gamma-method standard
+    error of ``Q_bar`` is scaled to the corresponding ``|X|^2`` standard error
+    before ``norm_stderr`` propagates it through the signed square root.
     """
     Q_tensor = torch.as_tensor(Q_history)
     Q = gamma_method_mean(
@@ -59,13 +59,14 @@ def vector_norm_gamma_method(
     norm_sq_stderr_scale = 2 * K**0.5 / R**0.5
     norm_sq_stderr = norm_sq_stderr_scale * Q.stderr
     norm_sq_stderr_of_stderr = norm_sq_stderr_scale * Q.stderr_of_stderr
-    norm = torch.sqrt(norm_sq)
+    norm = torch.sign(norm_sq) * torch.sqrt(torch.abs(norm_sq))
+    norm_magnitude = torch.abs(norm)
     return VectorNormGammaMethodEstimate(
         norm=norm,
-        norm_stderr=0.5 * norm_sq_stderr / norm,
+        norm_stderr=0.5 * norm_sq_stderr / norm_magnitude,
         norm_snr=torch.abs(2 * norm_sq / norm_sq_stderr),
         Q_bar_tau_int=Q.tau_int,
-        norm_stderr_of_stderr=0.5 * norm_sq_stderr_of_stderr / norm,
+        norm_stderr_of_stderr=0.5 * norm_sq_stderr_of_stderr / norm_magnitude,
         replica_count=R,
         widehat_count=M,
         widecheck_count=K,
