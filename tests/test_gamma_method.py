@@ -216,7 +216,7 @@ def assert_estimates_close(
     """Assert that every public ``GammaMethodEstimate`` field matches."""
     torch.testing.assert_close(actual.value, expected.value)
     torch.testing.assert_close(actual.stderr, expected.stderr)
-    torch.testing.assert_close(actual.snr, expected.value / expected.stderr)
+    torch.testing.assert_close(actual.snr, torch.abs(expected.value / expected.stderr))
     torch.testing.assert_close(actual.tau_int, expected.tau_int)
     torch.testing.assert_close(actual.sample_shapes, expected.sample_shapes)
     if expected.stderr_of_stderr is None:
@@ -273,6 +273,14 @@ def test_shape_behavior_for_unbatched_and_batched_histories() -> None:
     assert one_estimate.autocovariance.shape == torch.Size([3])
     assert two_estimate.autocovariance.shape == torch.Size([3])
     assert batched_estimate.autocovariance.shape == torch.Size([5, 3])
+
+
+def test_snr_is_absolute_for_negative_estimates() -> None:
+    """GammaMethodEstimate.snr returns a nonnegative ratio for a negative value."""
+    estimate = gamma_method_mean(torch.tensor([-5.0, -4.0, -3.0, -2.0, -1.0]))
+
+    torch.testing.assert_close(estimate.snr, torch.abs(estimate.value / estimate.stderr))
+    assert estimate.snr.item() >= 0.0
 
 
 def test_user_moved_data_normalizes_to_batch_chain_sample_layout() -> None:

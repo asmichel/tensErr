@@ -22,8 +22,8 @@ class GammaMethodEstimate: # to be renamed in future commit
 
     @property
     def snr(self) -> torch.Tensor:
-        """Return the signal-to-noise ratio ``value / stderr``."""
-        return self.value / self.stderr
+        """Return the absolute signal-to-noise ratio ``|value / stderr|``."""
+        return torch.abs(self.value / self.stderr)
 
     def __add__(self, other: object) -> GammaMethodEstimate:
         """Return the sample-count-weighted combination of ``self`` and ``other``."""
