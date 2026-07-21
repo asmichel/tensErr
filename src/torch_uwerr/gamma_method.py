@@ -6,24 +6,19 @@ from dataclasses import dataclass
 
 import torch
 
+from torch_uwerr.estimate import Estimate
+
 
 @dataclass(frozen=True, slots=True)
-class GammaMethodEstimate: # to be renamed in future commit
+class GammaMethodEstimate(Estimate):
     """Batch-shaped gamma-method estimates with per-replica sample lengths."""
 
-    value: torch.Tensor
-    stderr: torch.Tensor
     tau_int: torch.Tensor
     sample_shapes: torch.Tensor
     stderr_of_stderr: torch.Tensor | None
     window: torch.Tensor | None
     autocovariance: torch.Tensor | None = None # Γ(t)
     autocorrelation: torch.Tensor | None = None # ⍴(t)
-
-    @property
-    def snr(self) -> torch.Tensor:
-        """Return the absolute signal-to-noise ratio ``|value / stderr|``."""
-        return torch.abs(self.value / self.stderr)
 
     def __add__(self, other: object) -> GammaMethodEstimate:
         """Return the sample-count-weighted combination of ``self`` and ``other``."""

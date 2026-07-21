@@ -216,7 +216,7 @@ def assert_estimates_close(
     """Assert that every public ``GammaMethodEstimate`` field matches."""
     torch.testing.assert_close(actual.value, expected.value)
     torch.testing.assert_close(actual.stderr, expected.stderr)
-    torch.testing.assert_close(actual.snr, torch.abs(expected.value / expected.stderr))
+    torch.testing.assert_close(actual.snr, expected.snr)
     torch.testing.assert_close(actual.tau_int, expected.tau_int)
     torch.testing.assert_close(actual.sample_shapes, expected.sample_shapes)
     if expected.stderr_of_stderr is None:
@@ -327,6 +327,16 @@ def test_zero_variance_uses_pyerrors_degenerate_values() -> None:
     assert estimate.window.item() == 0
     torch.testing.assert_close(estimate.autocovariance, torch.zeros(4, dtype=torch.float64))
     torch.testing.assert_close(estimate.autocorrelation, torch.zeros(4, dtype=torch.float64))
+    assert torch.isposinf(estimate.snr).item()
+
+
+def test_zero_value_with_zero_stderr_has_infinite_snr() -> None:
+    """A constant zero history represents zero reported noise with infinite SNR."""
+    estimate = gamma_method_mean(torch.zeros((2, 8), dtype=torch.float64))
+
+    torch.testing.assert_close(estimate.value, torch.tensor(0.0, dtype=torch.float64))
+    torch.testing.assert_close(estimate.stderr, torch.tensor(0.0, dtype=torch.float64))
+    assert torch.isposinf(estimate.snr).item()
 
 
 def test_s_zero_standard_error_branch() -> None:

@@ -7,7 +7,12 @@ import os
 import pytest
 import torch
 
-from torch_uwerr import VectorNormGammaMethodEstimate, VectorNormGammaMethodHelper
+from torch_uwerr import (
+    VectorNormGammaMethodEstimate,
+    VectorNormGammaMethodHelper,
+    gamma_method_mean,
+    vector_norm_gamma_method,
+)
 
 # NORM_SIGMAS bounds the exact norm residual in reported stderr units.
 NORM_SIGMAS = 6.0
@@ -183,16 +188,16 @@ def _check_ar1_norm(
     assert estimate.widecheck_count == replica_count // 2
     assert estimate.sample_count == sample_count
     torch.testing.assert_close(
-        estimate.norm,
+        estimate.value,
         exact_norm,
         rtol=0.0,
-        atol=NORM_SIGMAS * estimate.norm_stderr.item(),
+        atol=NORM_SIGMAS * estimate.stderr.item(),
     )
     torch.testing.assert_close(
-        estimate.norm_stderr,
+        estimate.stderr,
         exact_stderr,
         rtol=ERR_RTOL,
-        atol=ERR_SIGMAS * estimate.norm_stderr_of_stderr.item(),
+        atol=ERR_SIGMAS * estimate.stderr_of_stderr.item(),
     )
     return estimate
 
@@ -286,7 +291,7 @@ def test_ar1_long_autocorrelation_projection() -> None:
 
     assert exact_ratio > 50.0
     torch.testing.assert_close(
-        long_estimate.norm_stderr / short_estimate.norm_stderr,
+        long_estimate.stderr / short_estimate.stderr,
         exact_ratio,
         rtol=0.08,
         atol=0.0,
@@ -320,13 +325,37 @@ def test_ar1_long_autocorrelation_zero_norm() -> None:
     exact_norm = torch.linalg.vector_norm(exact_m_bar)
 
     assert torch.count_nonzero(exact_m_bar) == 0
-    assert torch.isfinite(estimate.norm)
-    assert torch.isfinite(estimate.norm_stderr)
-    assert torch.isfinite(estimate.norm_snr)
-    assert torch.isfinite(estimate.norm_stderr_of_stderr)
+    assert torch.isfinite(estimate.value)
+    assert torch.isfinite(estimate.stderr)
+    assert torch.isfinite(estimate.snr)
+    assert torch.isfinite(estimate.stderr_of_stderr)
     torch.testing.assert_close(
-        estimate.norm,
+        estimate.value,
         exact_norm,
         rtol=0.0,
-        atol=NORM_SIGMAS * estimate.norm_stderr.item(),
+        atol=NORM_SIGMAS * estimate.stderr.item(),
     )
+
+
+def test_snr_matches_signed_root_delta_method() -> None:
+    """Vector norm SNR equals the signed-root ratio with its factor of two."""
+    Q_history = torch.tensor(
+        [-4.0, -2.0, -5.0, -3.0, -6.0, -1.0, -5.0, -2.0],
+        dtype=torch.float64,
+    )
+    replica_count = 10
+    widehat_count = 4
+    widecheck_count = replica_count - widehat_count
+    Q = gamma_method_mean(Q_history.unsqueeze(-2))
+    Q_bar_stderr = 2 * widecheck_count**0.5 / replica_count**0.5 * Q.stderr
+
+    estimate = vector_norm_gamma_method(
+        Q_history,
+        replica_count=replica_count,
+        widehat_count=widehat_count,
+    )
+
+    assert estimate.value.item() < 0.0
+    assert estimate.stderr.item() > 0.0
+    torch.testing.assert_close(estimate.snr, torch.abs(estimate.value) / estimate.stderr)
+    torch.testing.assert_close(estimate.snr, torch.abs(2 * Q.value / Q_bar_stderr))
