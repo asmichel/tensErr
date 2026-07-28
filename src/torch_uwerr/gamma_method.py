@@ -68,17 +68,6 @@ class GammaMethodEstimate(Estimate):
         return NotImplemented
 
 
-def _as_dense_chains(
-    samples: torch.Tensor,
-    accumulation_dtype: torch.dtype,
-) -> torch.Tensor:
-    """Return samples as a floating tensor shaped as (*batch, chains, samples)."""
-    x = torch.as_tensor(samples).to(dtype=accumulation_dtype)
-    if x.ndim == 1:
-        return x.reshape(1, x.shape[0])
-    return x
-
-
 def _pooled_autocovariance(centered: torch.Tensor, w_max: int) -> torch.Tensor:
     """Return pooled dense-chain autocovariance for lags [0, w_max)."""
     sample_count = centered.shape[-1]
@@ -156,7 +145,9 @@ def gamma_method_mean(
     optional autocovariance and autocorrelation tensors have shape
     (*batch_shape, N // 2).
     """
-    x = _as_dense_chains(samples, accumulation_dtype)
+    x = samples.to(dtype=accumulation_dtype)
+    if x.ndim == 1:
+        x = x.unsqueeze(0)
     sample_count = x.shape[-1]
     chain_count = x.shape[-2]
     total_count = chain_count * sample_count
