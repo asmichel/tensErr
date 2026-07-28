@@ -22,4 +22,7 @@ batch-shaped estimates with shape `B`.
 The implementation centers each chain along the sample axis and computes the
 dense autocovariance with `torch.fft.rfft` and `torch.fft.irfft`. It keeps the
 history on its original device and only changes dtype according to the
-`accumulation_dtype` argument.
+`accumulation_dtype` argument. The returned `C_f` is the windowed summed
+autocovariance `2 * tau_int * v_f`, where `v_f` is the lag-zero
+autocovariance; it remains available when the full autocorrelation history is
+not requested.

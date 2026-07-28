@@ -12,10 +12,14 @@ from torch_uwerr.gamma_method import gamma_method_mean
 
 @dataclass(frozen=True, slots=True)
 class VectorNormGammaMethodEstimate(Estimate):
-    """VectorNormGammaMethodEstimate holds norm estimates and Q-bar diagnostics."""
+    """Hold norm estimates and gamma-method diagnostics for ``Q_bar``.
+
+    ``Q_bar_C_f`` is the summed autocovariance of the input ``Q_history``.
+    """
 
     stderr_of_stderr: torch.Tensor
     Q_bar_tau_int: torch.Tensor
+    Q_bar_C_f: torch.Tensor
     replica_count: int
     widehat_count: int
     widecheck_count: int
@@ -66,6 +70,7 @@ def vector_norm_gamma_method(
         stderr=0.5 * norm_sq_stderr / norm_magnitude,
         stderr_of_stderr=0.5 * norm_sq_stderr_of_stderr / norm_magnitude,
         Q_bar_tau_int=Q.tau_int,
+        Q_bar_C_f=Q.C_f,
         replica_count=R,
         widehat_count=M,
         widecheck_count=K,

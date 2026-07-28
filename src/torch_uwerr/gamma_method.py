@@ -11,9 +11,14 @@ from torch_uwerr.estimate import Estimate
 
 @dataclass(frozen=True, slots=True)
 class GammaMethodEstimate(Estimate):
-    """Batch-shaped gamma-method estimates with per-replica sample lengths."""
+    """Batch-shaped gamma-method estimates with per-replica sample lengths.
+
+    ``C_f`` is the windowed summed autocovariance ``2 * tau_int * v_f``,
+    where ``v_f`` is the lag-zero autocovariance.
+    """
 
     tau_int: torch.Tensor
+    C_f: torch.Tensor
     sample_shapes: torch.Tensor
     stderr_of_stderr: torch.Tensor | None
     window: torch.Tensor | None
@@ -48,10 +53,15 @@ class GammaMethodEstimate(Estimate):
             self_sample_count * self.tau_int
             + other_sample_count * other.tau_int
         ) / total_sample_count
+        C_f = (
+            self_sample_count * self.C_f
+            + other_sample_count * other.C_f
+        ) / total_sample_count
         return GammaMethodEstimate(
             value=value,
             stderr=stderr,
             tau_int=tau_int,
+            C_f=C_f,
             sample_shapes=torch.cat((self.sample_shapes, other.sample_shapes)),
             stderr_of_stderr=None,
             window=None,
@@ -141,8 +151,8 @@ def gamma_method_mean(
 
     samples is interpreted as (..., chains, samples), except a one-dimensional
     input is treated as one unbatched chain. The returned value, stderr, tau_int,
-    stderr_of_stderr, and window tensors have the leading batch shape, while the
-    optional autocovariance and autocorrelation tensors have shape
+    C_f, stderr_of_stderr, and window tensors have the leading batch shape,
+    while the optional autocovariance and autocorrelation tensors have shape
     (*batch_shape, N // 2).
     """
     x = samples.to(dtype=accumulation_dtype)
@@ -157,13 +167,14 @@ def gamma_method_mean(
     centered = x - x.mean(dim=-1, keepdim=True)
     autocovariance = _pooled_autocovariance(centered, w_max)
     autocorrelation = _safe_autocorrelation(autocovariance)
-    variance = autocovariance[..., 0]
-    zero_variance = variance == 0
+    v_f = autocovariance[..., 0]
+    zero_variance = v_f == 0
 
     if gamma_method_s == 0.0:
-        window = torch.zeros_like(variance, dtype=torch.long)
-        tau_int = torch.full_like(variance, 0.5)
-        stderr = torch.sqrt(variance / (total_count - 1))
+        window = torch.zeros_like(v_f, dtype=torch.long)
+        tau_int = torch.full_like(v_f, 0.5)
+        C_f = v_f
+        stderr = torch.sqrt(C_f / (total_count - 1))
         stderr_of_stderr = stderr * torch.sqrt(
             torch.as_tensor(0.5 / total_count, dtype=x.dtype, device=x.device)
         )
@@ -174,7 +185,8 @@ def gamma_method_mean(
         τ_window = _gather_lag(τ_history, window)
         bias = (1 + (2 * window_float + 1) / total_count) / (1 + 1 / total_count)
         tau_int = τ_window * bias
-        stderr = torch.sqrt(2 * tau_int * variance * (1 + 1 / total_count) / total_count)
+        C_f = 2 * tau_int * v_f
+        stderr = torch.sqrt(C_f * (1 + 1 / total_count) / total_count)
         stderr_of_stderr = stderr * torch.sqrt((window_float + 0.5) / total_count)
 
     tau_int = torch.where(zero_variance, torch.full_like(tau_int, 0.5), tau_int)
@@ -197,6 +209,7 @@ def gamma_method_mean(
         value=value,
         stderr=stderr,
         tau_int=tau_int,
+        C_f=C_f,
         sample_shapes=torch.full(
             (chain_count,),
             sample_count,

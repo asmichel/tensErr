@@ -220,6 +220,10 @@ def test_ar1_large_even_r() -> None:
     assert estimate.Q_bar_autocorrelation is not None
     assert estimate.Q_bar_autocovariance.shape == torch.Size([sample_count // 2])
     assert estimate.Q_bar_autocorrelation.shape == torch.Size([sample_count // 2])
+    torch.testing.assert_close(
+        estimate.Q_bar_C_f,
+        2 * estimate.Q_bar_tau_int * estimate.Q_bar_autocovariance[0],
+    )
 
 
 def test_ar1_mixed_spectrum() -> None:
@@ -359,3 +363,24 @@ def test_snr_matches_signed_root_delta_method() -> None:
     assert estimate.stderr.item() > 0.0
     torch.testing.assert_close(estimate.snr, torch.abs(estimate.value) / estimate.stderr)
     torch.testing.assert_close(estimate.snr, torch.abs(2 * Q.value / Q_bar_stderr))
+
+
+def test_s_zero_reports_Q_replica_mean_variance_without_reconstructing_stderr() -> None:
+    """Q_bar_C_f exposes the biased replica-mean variance in the S=0 limit."""
+    Q_replica_means = torch.tensor([2.0, 4.0, 6.0, 8.0], dtype=torch.float64)
+
+    estimate = vector_norm_gamma_method(
+        Q_replica_means,
+        replica_count=8,
+        widehat_count=4,
+        gamma_method_s=0.0,
+    )
+
+    torch.testing.assert_close(
+        estimate.Q_bar_C_f,
+        torch.var(Q_replica_means, correction=0),
+    )
+    torch.testing.assert_close(
+        estimate.Q_bar_C_f * Q_replica_means.numel() / (Q_replica_means.numel() - 1),
+        torch.var(Q_replica_means, correction=1),
+    )

@@ -115,6 +115,7 @@ def manual_sample_weighted_gamma_method_mean(
     value_numerator = torch.zeros(batch_shape, dtype=dtype, device=device)
     stderr_square_numerator = torch.zeros(batch_shape, dtype=dtype, device=device)
     tau_int_numerator = torch.zeros(batch_shape, dtype=dtype, device=device)
+    C_f_numerator = torch.zeros(batch_shape, dtype=dtype, device=device)
 
     for chunk in dense_chunks:
         chunk_sample_count = chunk.shape[-2] * chunk.shape[-1]
@@ -129,11 +130,13 @@ def manual_sample_weighted_gamma_method_mean(
         tau_int_numerator = (
             tau_int_numerator + chunk_sample_count * chunk_estimate.tau_int
         )
+        C_f_numerator = C_f_numerator + chunk_sample_count * chunk_estimate.C_f
 
     return GammaMethodEstimate(
         value=value_numerator / total_sample_count,
         stderr=torch.sqrt(stderr_square_numerator) / total_sample_count,
         tau_int=tau_int_numerator / total_sample_count,
+        C_f=C_f_numerator / total_sample_count,
         sample_shapes=sample_shapes,
         stderr_of_stderr=None,
         window=None,
@@ -158,6 +161,7 @@ def manual_replica_weighted_gamma_method_mean(
     value_numerator = torch.zeros(batch_shape, dtype=dtype, device=device)
     stderr_square_numerator = torch.zeros(batch_shape, dtype=dtype, device=device)
     tau_int_numerator = torch.zeros(batch_shape, dtype=dtype, device=device)
+    C_f_numerator = torch.zeros(batch_shape, dtype=dtype, device=device)
 
     for chunk in dense_chunks:
         chunk_replica_count = chunk.shape[-2]
@@ -172,11 +176,13 @@ def manual_replica_weighted_gamma_method_mean(
         tau_int_numerator = (
             tau_int_numerator + chunk_replica_count * chunk_estimate.tau_int
         )
+        C_f_numerator = C_f_numerator + chunk_replica_count * chunk_estimate.C_f
 
     return GammaMethodEstimate(
         value=value_numerator / replica_count,
         stderr=torch.sqrt(stderr_square_numerator) / replica_count,
         tau_int=tau_int_numerator / replica_count,
+        C_f=C_f_numerator / replica_count,
         sample_shapes=sample_shapes,
         stderr_of_stderr=None,
         window=None,
@@ -218,6 +224,7 @@ def assert_estimates_close(
     torch.testing.assert_close(actual.stderr, expected.stderr)
     torch.testing.assert_close(actual.snr, expected.snr)
     torch.testing.assert_close(actual.tau_int, expected.tau_int)
+    torch.testing.assert_close(actual.C_f, expected.C_f)
     torch.testing.assert_close(actual.sample_shapes, expected.sample_shapes)
     if expected.stderr_of_stderr is None:
         assert actual.stderr_of_stderr is None
@@ -323,6 +330,7 @@ def test_zero_variance_uses_pyerrors_degenerate_values() -> None:
     torch.testing.assert_close(estimate.value, torch.tensor(4.25, dtype=torch.float64))
     torch.testing.assert_close(estimate.stderr, torch.tensor(0.0, dtype=torch.float64))
     torch.testing.assert_close(estimate.tau_int, torch.tensor(0.5, dtype=torch.float64))
+    torch.testing.assert_close(estimate.C_f, torch.tensor(0.0, dtype=torch.float64))
     torch.testing.assert_close(estimate.stderr_of_stderr, torch.tensor(0.0, dtype=torch.float64))
     assert estimate.window.item() == 0
     torch.testing.assert_close(estimate.autocovariance, torch.zeros(4, dtype=torch.float64))
@@ -348,6 +356,7 @@ def test_s_zero_standard_error_branch() -> None:
     estimate = gamma_method_mean(samples, gamma_method_s=0.0)
 
     torch.testing.assert_close(estimate.tau_int, torch.tensor(0.5, dtype=torch.float64))
+    torch.testing.assert_close(estimate.C_f, γ[0])
     torch.testing.assert_close(estimate.stderr, torch.sqrt(γ[0] / (total_count - 1)))
     torch.testing.assert_close(
         estimate.stderr_of_stderr,
@@ -379,6 +388,7 @@ def test_s_two_automatic_window_branch() -> None:
 
     assert estimate.window.item() == window
     torch.testing.assert_close(estimate.tau_int, tau_int)
+    torch.testing.assert_close(estimate.C_f, 2 * tau_int * γ[0])
     torch.testing.assert_close(estimate.stderr, stderr)
     torch.testing.assert_close(
         estimate.stderr_of_stderr,
