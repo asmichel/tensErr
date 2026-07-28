@@ -367,6 +367,19 @@ def test_s_zero_standard_error_branch() -> None:
     assert estimate.autocorrelation is None
 
 
+def test_s_zero_C_f_does_not_retain_autocovariance_storage() -> None:
+    """C_f owns compact storage when autocovariance diagnostics are omitted."""
+    samples = torch.arange(32, dtype=torch.float64)
+
+    estimate = gamma_method_mean(samples, gamma_method_s=0.0)
+
+    assert estimate.autocovariance is None
+    assert estimate.autocorrelation is None
+    assert estimate.C_f.untyped_storage().nbytes() == (
+        estimate.C_f.numel() * estimate.C_f.element_size()
+    )
+
+
 def test_s_two_automatic_window_branch() -> None:
     """S=2.0 follows pyerrors automatic windowing and bias-corrected stderr."""
     samples = torch.tensor([[1.0, 1.5, 2.5, 3.0, 5.0, 8.0, 13.0, 21.0]])
@@ -411,6 +424,25 @@ def test_estimate_addition_matches_manual_combination_for_uneven_chunks() -> Non
 
     assert_combined_diagnostics_absent(actual)
     assert_estimates_close(actual, expected)
+
+
+def test_estimate_addition_sample_weights_C_f() -> None:
+    """GammaMethodEstimate addition sample-weights the summed autocovariances."""
+    left = gamma_method_mean(
+        ar1_replica_history(replica_count=2, sample_count=10, rho=0.4, seed=11)
+    )
+    right = gamma_method_mean(
+        ar1_replica_history(replica_count=3, sample_count=12, rho=0.7, seed=12)
+    )
+    left_count = left.sample_shapes.sum().to(dtype=left.C_f.dtype)
+    right_count = right.sample_shapes.sum().to(dtype=right.C_f.dtype)
+
+    combined = left + right
+
+    expected_C_f = (
+        left_count * left.C_f + right_count * right.C_f
+    ) / (left_count + right_count)
+    torch.testing.assert_close(combined.C_f, expected_C_f)
 
 
 def test_estimate_addition_matches_manual_combination_for_one_replica_chunks() -> None:

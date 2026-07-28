@@ -173,7 +173,7 @@ def gamma_method_mean(
     if gamma_method_s == 0.0:
         window = torch.zeros_like(v_f, dtype=torch.long)
         tau_int = torch.full_like(v_f, 0.5)
-        C_f = v_f
+        C_f = 2 * tau_int * v_f
         stderr = torch.sqrt(C_f / (total_count - 1))
         stderr_of_stderr = stderr * torch.sqrt(
             torch.as_tensor(0.5 / total_count, dtype=x.dtype, device=x.device)
