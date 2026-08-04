@@ -14,8 +14,11 @@ from tensErr import (
 
 
 def test_estimate_base_contains_only_universal_fields() -> None:
-    """Estimate declares only value and stderr as shared stored fields."""
-    assert tuple(field.name for field in fields(Estimate)) == ("value", "stderr")
+    """Estimate declares value, stderr, and derived snr as shared stored fields."""
+    estimate_fields = fields(Estimate)
+
+    assert tuple(field.name for field in estimate_fields) == ("value", "stderr", "snr")
+    assert estimate_fields[-1].init is False
 
 
 def test_snr_uses_absolute_ratio_and_infinite_zero_error_contract() -> None:
@@ -29,6 +32,17 @@ def test_snr_uses_absolute_ratio_and_infinite_zero_error_contract() -> None:
         estimate.snr,
         torch.tensor([2.0, 0.0, torch.inf, torch.inf], dtype=torch.float64),
     )
+
+
+def test_snr_access_reuses_the_post_init_tensor() -> None:
+    """Repeated ``estimate.snr`` access returns the stored post-init tensor."""
+    estimate = Estimate(
+        value=torch.tensor([3.0, 4.0], dtype=torch.float64),
+        stderr=torch.tensor([1.0, 2.0], dtype=torch.float64),
+    )
+    stored_snr = estimate.snr
+
+    assert estimate.snr is stored_snr
 
 
 def test_gamma_and_vector_results_inherit_estimate() -> None:

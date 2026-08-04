@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import torch
 
@@ -11,19 +11,23 @@ import torch
 class Estimate:
     """Estimate stores a tensor value and its nonnegative standard error.
 
-    ``stderr`` satisfies the invariant ``stderr >= 0``. The ``snr`` property
+    ``stderr`` satisfies the invariant ``stderr >= 0``. The derived ``snr`` field
     represents zero reported noise as positive infinity, independently of
     ``value``.
     """
 
     value: torch.Tensor
     stderr: torch.Tensor
+    snr: torch.Tensor = field(init=False)
 
-    @property
-    def snr(self) -> torch.Tensor:
-        """Return ``abs(value) / stderr``, or infinity where ``stderr`` is zero."""
-        return torch.where(
-            self.stderr > 0,
-            torch.abs(self.value) / self.stderr,
-            torch.inf,
+    def __post_init__(self) -> None:
+        """Derive ``snr`` once from ``value`` and ``stderr`` after initialization."""
+        object.__setattr__(
+            self,
+            "snr",
+            torch.where(
+                self.stderr > 0,
+                torch.abs(self.value) / self.stderr,
+                torch.inf,
+            ),
         )
