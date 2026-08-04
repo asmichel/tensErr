@@ -1,6 +1,6 @@
-# torch-uwerr
+# tensErr
 
-`torch-uwerr` provides Torch-native gamma-method uncertainty estimates for
+`tensErr` provides Torch-native gamma-method uncertainty estimates for
 Monte Carlo histories.
 
 ## Scalar means
@@ -8,9 +8,9 @@ Monte Carlo histories.
 ```python
 import torch
 
-from torch_uwerr import gamma_method_mean
+from tensErr import gamma_method
 
-estimate = gamma_method_mean(
+estimate = gamma_method(
     samples,
     gamma_method_s=2.0,
     accumulation_dtype=torch.float64,
@@ -30,7 +30,7 @@ across independent complete chains, reduce each chain to its mean and pass the
 resulting length-$`R`$ vector; passing the original $`(R,N)`$ histories instead
 measures within-chain variation.
 
-`gamma_method_mean` returns a `GammaMethodEstimate`. The `+` operator combines
+`gamma_method` returns a `GammaMethodEstimate`. The `+` operator combines
 independent estimates with identical batch shapes; it does not add their
 reported values. The result is weighted by each operand's total sample count,
 with independent errors combined using the same weights. `sum(estimates)`
@@ -86,7 +86,7 @@ $`\bar X^r`$, and the application-provided
 vectors $`q^r`$.
 
 ```python
-from torch_uwerr import VectorNormGammaMethodHelper
+from tensErr import VectorNormGammaMethodHelper
 
 helper = VectorNormGammaMethodHelper(
     replica_count=R,
@@ -113,7 +113,7 @@ enforces the order of these operations but does not count contributions, so
 the caller must supply exactly $`M`$ widehat and $`K`$ widecheck replicas.
 
 Let $`\bar Q`$ be the mean of the $`N`$ values $`Q_i`$, and let $`\delta_Q`$
-be the standard error returned by `gamma_method_mean` for that scalar history.
+be the standard error returned by `gamma_method` for that scalar history.
 The reported value and standard error are
 
 ```math

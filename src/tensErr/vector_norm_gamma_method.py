@@ -6,8 +6,8 @@ from dataclasses import dataclass
 
 import torch
 
-from torch_uwerr.estimate import Estimate
-from torch_uwerr.gamma_method import gamma_method_mean
+from tensErr.estimate import Estimate
+from tensErr.gamma_method import gamma_method
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,7 +48,7 @@ def vector_norm_gamma_method(
     before ``stderr`` propagates it through the signed square root.
     """
     Q_tensor = torch.as_tensor(Q_history)
-    Q = gamma_method_mean(
+    Q = gamma_method(
         Q_tensor.unsqueeze(-2),
         gamma_method_s=gamma_method_s,
         accumulation_dtype=accumulation_dtype,

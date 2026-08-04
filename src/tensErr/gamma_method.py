@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import torch
 
-from torch_uwerr.estimate import Estimate
+from tensErr.estimate import Estimate
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,7 +140,7 @@ def _gather_lag(history: torch.Tensor, window: torch.Tensor) -> torch.Tensor:
     return torch.gather(history, dim=-1, index=window.unsqueeze(-1)).squeeze(-1)
 
 
-def gamma_method_mean(
+def gamma_method(
     samples: torch.Tensor,
     *,
     gamma_method_s: float = 2.0,
