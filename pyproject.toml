@@ -3,7 +3,7 @@ requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "torch-uwerr"
+name = "tensErr"
 version = "0.3.0"
 description = "Torch implementation of dense UWerr gamma-method mean estimates."
 readme = "README.md"
@@ -18,9 +18,10 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["tensErr*"]
 
 [tool.setuptools.package-data]
-torch_uwerr = ["py.typed"]
+tensErr = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
