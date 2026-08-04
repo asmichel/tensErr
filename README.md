@@ -1,7 +1,7 @@
 # torch-uwerr
 
 `torch-uwerr` provides Torch-native gamma-method uncertainty estimates for
-dense Monte Carlo histories.
+Monte Carlo histories.
 
 ## Scalar means
 
