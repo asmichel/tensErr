@@ -79,12 +79,17 @@ class GammaMethodEstimate(Estimate):
 
 
 def _pooled_autocovariance(centered: torch.Tensor, w_max: int) -> torch.Tensor:
-    """Return pooled dense-chain autocovariance for lags [0, w_max)."""
+    """Return pooled dense-chain autocovariance for lags [0, w_max).
+
+    Replica power spectra are summed before the inverse transform because its
+    linearity avoids materializing an inverse-FFT output for every replica.
+    """
     sample_count = centered.shape[-1]
     chain_count = centered.shape[-2]
     padding = sample_count + w_max + (sample_count + w_max) % 2
     spectrum = torch.fft.rfft(centered, n=padding, dim=-1)
-    lag_sums = torch.fft.irfft(spectrum.abs().square(), n=padding, dim=-1)[..., :w_max]
+    pooled_power = spectrum.abs().square().sum(dim=-2)
+    lag_sums = torch.fft.irfft(pooled_power, n=padding, dim=-1)[..., :w_max]
     pair_counts = torch.arange(
         sample_count,
         sample_count - w_max,
@@ -92,7 +97,7 @@ def _pooled_autocovariance(centered: torch.Tensor, w_max: int) -> torch.Tensor:
         dtype=centered.dtype,
         device=centered.device,
     )
-    return lag_sums.sum(dim=-2) / (chain_count * pair_counts)
+    return lag_sums / (chain_count * pair_counts)
 
 
 def _safe_autocorrelation(autocovariance: torch.Tensor) -> torch.Tensor:
