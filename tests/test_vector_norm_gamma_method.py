@@ -7,11 +7,17 @@ import os
 import pytest
 import torch
 
-from torch_uwerr import (
+from tensErr import (
     VectorNormGammaMethodEstimate,
     VectorNormGammaMethodHelper,
-    gamma_method_mean,
+    gamma_method,
     vector_norm_gamma_method,
+)
+from tests.ar1 import (
+    orthogonal_ar1_mixer,
+    symmetric_ar1_model,
+    vector_ar1_replica_histories,
+    vector_mean_norm_stderr,
 )
 
 # NORM_SIGMAS bounds the exact norm residual in reported stderr units.
@@ -24,90 +30,7 @@ ERR_RTOL = 0.05
 ERR_SIGMAS = 4.0
 
 # LONG_AR1_ENV disables long-autocorrelation tests when set to ``0``.
-LONG_AR1_ENV = "TORCH_UWERR_LONG_AR1"
-
-
-def _mixer(
-    dimension: int,
-    mixing: float,
-) -> torch.Tensor:
-    """Return a deterministic orthogonal mixer for ``dimension`` coordinates."""
-    skew = torch.zeros((dimension, dimension), dtype=torch.float64)
-    for row in range(dimension):
-        for column in range(row + 1, dimension):
-            entry = mixing * (-1.0) ** (row + column) / (1.0 + column - row)
-            skew[row, column] = entry
-            skew[column, row] = -entry
-    return torch.linalg.matrix_exp(skew)
-
-
-def _ar1_model(
-    eig_range: tuple[float, float],
-    dimension: int,
-    m_bar: torch.Tensor,
-    mixing: float,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Return ``A``, ``b``, exact ``m_bar``, and ``C`` from the AR(1) theory note."""
-    eigenvalues = torch.linspace(
-        eig_range[0],
-        eig_range[1],
-        dimension,
-        dtype=torch.float64,
-    )
-    mixer = _mixer(dimension, mixing)
-    A = mixer @ torch.diag(eigenvalues) @ mixer.T
-    identity = torch.eye(dimension, dtype=torch.float64)
-    b = (identity - A) @ m_bar
-    exact_m_bar = torch.linalg.solve(identity - A, b)
-    resolvent = torch.linalg.solve(identity - A, identity)
-    C = resolvent @ resolvent
-    return A, b, exact_m_bar, C
-
-
-def _ar1_history(
-    A: torch.Tensor,
-    b: torch.Tensor,
-    m_bar: torch.Tensor,
-    replica_count: int,
-    sample_count: int,
-    seed: int,
-) -> torch.Tensor:
-    """Return deterministic stationary AR(1) histories with unit innovations."""
-    dimension = b.shape[0]
-    generator = torch.Generator(device="cpu").manual_seed(seed)
-    identity = torch.eye(dimension, dtype=torch.float64)
-    stationary_covariance = torch.linalg.solve(identity - A @ A, identity)
-    covariance_eigenvalues, covariance_eigenvectors = torch.linalg.eigh(
-        stationary_covariance
-    )
-    stationary_scale = (
-        covariance_eigenvectors
-        @ torch.diag(torch.sqrt(covariance_eigenvalues))
-        @ covariance_eigenvectors.T
-    )
-    state = (
-        m_bar
-        + torch.randn(
-            (replica_count, dimension),
-            generator=generator,
-            dtype=torch.float64,
-        )
-        @ stationary_scale.T
-    )
-    histories = torch.empty(
-        (replica_count, sample_count, dimension),
-        dtype=torch.float64,
-    )
-    histories[:, 0, :] = state
-    for sample_index in range(1, sample_count):
-        innovations = torch.randn(
-            (replica_count, dimension),
-            generator=generator,
-            dtype=torch.float64,
-        )
-        state = b + state @ A.T + innovations
-        histories[:, sample_index, :] = state
-    return histories
+LONG_AR1_ENV = "TENSERR_LONG_AR1"
 
 
 def _estimate_norm(
@@ -133,18 +56,6 @@ def _estimate_norm(
     )
 
 
-def _norm_error(
-    m_bar: torch.Tensor,
-    C: torch.Tensor,
-    replica_count: int,
-    sample_count: int,
-) -> torch.Tensor:
-    """Return exact AR(1) norm stderr from ``m_bar`` and summed autocovariance ``C``."""
-    norm = torch.linalg.vector_norm(m_bar)
-    norm_variance = (m_bar @ C @ m_bar) / (replica_count * sample_count * norm * norm)
-    return torch.sqrt(norm_variance)
-
-
 def _check_ar1_norm(
     *,
     eig_range: tuple[float, float],
@@ -157,28 +68,25 @@ def _check_ar1_norm(
     return_autocorrelation: bool,
 ) -> VectorNormGammaMethodEstimate:
     """Assert helper output is calibrated against exact AR(1) norm theory."""
-    A, b, exact_m_bar, C = _ar1_model(
+    model = symmetric_ar1_model(
         eig_range,
         dimension,
         m_bar,
         mixing,
     )
-    histories = _ar1_history(
-        A,
-        b,
-        exact_m_bar,
+    histories = vector_ar1_replica_histories(
+        model,
         replica_count,
         sample_count,
-        seed,
+        seed=seed,
     )
     estimate = _estimate_norm(
         histories,
         return_autocorrelation=return_autocorrelation,
     )
-    exact_norm = torch.linalg.vector_norm(exact_m_bar)
-    exact_stderr = _norm_error(
-        exact_m_bar,
-        C,
+    exact_norm = torch.linalg.vector_norm(model.mean)
+    exact_stderr = vector_mean_norm_stderr(
+        model,
         replica_count,
         sample_count,
     )
@@ -263,7 +171,7 @@ def test_ar1_long_autocorrelation_projection() -> None:
     dimension = 6
     eig_range = (0.05, 0.985)
     mixing = 0.70
-    mixer = _mixer(dimension, mixing)
+    mixer = orthogonal_ar1_mixer(dimension, mixing)
 
     short_estimate = _check_ar1_norm(
         eig_range=eig_range,
@@ -311,24 +219,22 @@ def test_ar1_long_autocorrelation_zero_norm() -> None:
     dimension = 6
     replica_count = 64
     sample_count = 131_072
-    A, b, exact_m_bar, _ = _ar1_model(
-        eig_range=(0.05, 0.985),
+    model = symmetric_ar1_model(
+        (0.05, 0.985),
         dimension=dimension,
-        m_bar=torch.zeros(dimension, dtype=torch.float64),
+        mean=torch.zeros(dimension, dtype=torch.float64),
         mixing=0.70,
     )
-    histories = _ar1_history(
-        A,
-        b,
-        exact_m_bar,
+    histories = vector_ar1_replica_histories(
+        model,
         replica_count,
         sample_count,
         seed=20260706,
     )
     estimate = _estimate_norm(histories, return_autocorrelation=False)
-    exact_norm = torch.linalg.vector_norm(exact_m_bar)
+    exact_norm = torch.linalg.vector_norm(model.mean)
 
-    assert torch.count_nonzero(exact_m_bar) == 0
+    assert torch.count_nonzero(model.mean) == 0
     assert torch.isfinite(estimate.value)
     assert torch.isfinite(estimate.stderr)
     assert torch.isfinite(estimate.snr)
@@ -350,7 +256,7 @@ def test_snr_matches_signed_root_delta_method() -> None:
     replica_count = 10
     widehat_count = 4
     widecheck_count = replica_count - widehat_count
-    Q = gamma_method_mean(Q_history.unsqueeze(-2))
+    Q = gamma_method(Q_history.unsqueeze(-2))
     Q_bar_stderr = 2 * widecheck_count**0.5 / replica_count**0.5 * Q.stderr
 
     estimate = vector_norm_gamma_method(

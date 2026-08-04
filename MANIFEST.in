@@ -1,0 +1,2 @@
+# Include tests with their shared fixtures and mathematical conventions in sdists.
+recursive-include tests *.py *.md

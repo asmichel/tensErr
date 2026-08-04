@@ -1,4 +1,4 @@
-"""CPU benchmark tests comparing torch_uwerr against pyerrors FFT."""
+"""CPU benchmark tests comparing tensErr against pyerrors FFT."""
 
 from __future__ import annotations
 
@@ -10,17 +10,20 @@ import time
 import numpy as np
 import pytest
 
-# BENCHMARK_SHAPES are the requested float64 history layouts.
-BENCHMARK_SHAPES = ((32, 16_384), (64, 65_536))
+from tests.ar1 import scalar_ar1_replica_histories
 
-# BENCHMARK_RHO gives the benchmark histories realistic positive autocorrelation.
-BENCHMARK_RHO = 0.75
+# SCALAR_AR1_BENCHMARK_CASES specify replica count, sample count, and rho.
+SCALAR_AR1_BENCHMARK_CASES = (
+    (1, 262_144, 0.75),
+    (32, 16_384, 0.75),
+    (64, 65_536, 0.75),
+)
 
 # BENCHMARK_REPEATS keeps timing deterministic without making the suite excessive.
 BENCHMARK_REPEATS = 3
 
-# BENCHMARK_RATIO_LIMIT fails when pyerrors FFT is more than about 2x faster.
-BENCHMARK_RATIO_LIMIT = 2.0
+# BENCHMARK_RATIO_LIMIT requires tensErr to be strictly faster than pyerrors FFT.
+BENCHMARK_RATIO_LIMIT = 1.0
 
 # BENCHMARK_ATOL allows benchmark warmup outputs to sanity-check agreement.
 BENCHMARK_ATOL = 5.0e-10
@@ -35,24 +38,8 @@ PYERRORS_ENSEMBLE_NAME = "bench"
 PYERRORS_REPLICA_PREFIX = "replica"
 
 
-def _benchmark_histories(shape: tuple[int, int]) -> np.ndarray:
-    """Return deterministic float64 AR(1) histories for a benchmark shape."""
-    chain_count, sample_count = shape
-    seed = 20260614 + chain_count * 1_000_003 + sample_count
-    rng = np.random.default_rng(seed)
-    innovations = rng.standard_normal(shape)
-    histories = np.empty_like(innovations)
-    histories[:, 0] = innovations[:, 0]
-    innovation_scale = np.sqrt(1.0 - BENCHMARK_RHO * BENCHMARK_RHO)
-    for t in range(1, sample_count):
-        histories[:, t] = (
-            BENCHMARK_RHO * histories[:, t - 1] + innovation_scale * innovations[:, t]
-        )
-    return histories
-
-
 def _pyerrors_stderr(histories: np.ndarray) -> np.ndarray:
-    """Return pyerrors FFT stderr for the benchmark history chain set."""
+    """Return pyerrors FFT stderr for the benchmark history replica set."""
     pyerrors = pytest.importorskip("pyerrors")
     samples = [np.asarray(row, dtype=np.float64) for row in histories]
     names = [
@@ -64,11 +51,11 @@ def _pyerrors_stderr(histories: np.ndarray) -> np.ndarray:
     return np.asarray(obs.dvalue, dtype=np.float64)
 
 
-def _torch_uwerr_stderr(histories: np.ndarray) -> np.ndarray:
-    """Return torch_uwerr stderr values from gamma_method_mean."""
+def _tenserr_stderr(histories: np.ndarray) -> np.ndarray:
+    """Return tensErr stderr values from gamma_method."""
     torch = pytest.importorskip("torch")
-    torch_uwerr = pytest.importorskip("torch_uwerr")
-    result = torch_uwerr.gamma_method_mean(
+    tenserr = pytest.importorskip("tensErr")
+    result = tenserr.gamma_method(
         torch.as_tensor(histories, dtype=torch.float64, device="cpu")
     )
     if isinstance(result, dict):
@@ -105,24 +92,36 @@ def _minimum_seconds(
     return min(seconds), result
 
 
-@pytest.mark.parametrize("shape", BENCHMARK_SHAPES)
-def test_torch_uwerr_cpu_is_not_slower_than_pyerrors_fft_by_more_than_2x(
-    shape: tuple[int, int],
+@pytest.mark.parametrize(
+    ("replica_count", "sample_count", "rho"),
+    SCALAR_AR1_BENCHMARK_CASES,
+)
+def test_tenserr_cpu_outperforms_pyerrors_fft_for_scalar_ar1(
+    replica_count: int,
+    sample_count: int,
+    rho: float,
     record_property: Callable[[str, object], None],
 ) -> None:
-    """Report CPU timings and fail if pyerrors FFT is more than about 2x faster."""
-    histories = _benchmark_histories(shape)
-    torch_seconds, torch_stderr = _minimum_seconds(_torch_uwerr_stderr, histories)
+    """Require lower tensErr runtime for stationary scalar AR(1) histories."""
+    seed = 20260614 + replica_count * 1_000_003 + sample_count
+    histories = scalar_ar1_replica_histories(
+        replica_count,
+        sample_count,
+        rho=rho,
+        seed=seed,
+    ).numpy()
+    tenserr_seconds, tenserr_stderr = _minimum_seconds(_tenserr_stderr, histories)
     pyerrors_seconds, pyerrors_stderr = _minimum_seconds(_pyerrors_stderr, histories)
     np.testing.assert_allclose(
-        torch_stderr, pyerrors_stderr, rtol=BENCHMARK_RTOL, atol=BENCHMARK_ATOL
+        tenserr_stderr, pyerrors_stderr, rtol=BENCHMARK_RTOL, atol=BENCHMARK_ATOL
     )
-    ratio = torch_seconds / pyerrors_seconds
-    record_property("torch_uwerr_seconds", torch_seconds)
+    ratio = tenserr_seconds / pyerrors_seconds
+    record_property("tenserr_seconds", tenserr_seconds)
     record_property("pyerrors_fft_seconds", pyerrors_seconds)
-    record_property("torch_over_pyerrors_ratio", ratio)
+    record_property("tenserr_over_pyerrors_ratio", ratio)
+    record_property("rho", rho)
     print(
-        f"shape={shape} torch_uwerr={torch_seconds:.6f}s "
+        f"shape={histories.shape} rho={rho:.3f} tensErr={tenserr_seconds:.6f}s "
         f"pyerrors_fft={pyerrors_seconds:.6f}s ratio={ratio:.3f}"
     )
-    assert ratio <= BENCHMARK_RATIO_LIMIT
+    assert ratio < BENCHMARK_RATIO_LIMIT

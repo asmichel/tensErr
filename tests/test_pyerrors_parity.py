@@ -1,4 +1,4 @@
-"""Parity tests against pyerrors for gamma_method_mean."""
+"""Parity tests against pyerrors for gamma_method."""
 
 from __future__ import annotations
 
@@ -7,7 +7,9 @@ from collections.abc import Mapping
 import numpy as np
 import pytest
 
-# FIELD_ALIASES maps torch_uwerr result field names to accepted API spellings.
+from tests.ar1 import scalar_ar1_replica_histories
+
+# FIELD_ALIASES maps tensErr result field names to accepted API spellings.
 FIELD_ALIASES = {
     "value": ("value", "mean"),
     "stderr": ("stderr", "dvalue", "error", "err"),
@@ -27,8 +29,8 @@ FIXTURE_SAMPLE_COUNT = 96
 # AR1_SAMPLE_COUNT keeps AR(1) parity tests stable without making pyerrors slow.
 AR1_SAMPLE_COUNT = 4096
 
-# AR1_CHAIN_COUNT gives each rho case several independent histories.
-AR1_CHAIN_COUNT = 4
+# AR1_REPLICA_COUNT gives each rho case several independent histories.
+AR1_REPLICA_COUNT = 4
 
 # AR1_RHOS are the requested Gaussian AR(1) autocorrelation coefficients.
 AR1_RHOS = (0.0, 0.5, 0.9)
@@ -71,16 +73,16 @@ def _pyerrors_reference(histories: np.ndarray) -> dict[str, np.ndarray]:
     }
 
 
-def _gamma_method_mean(histories: np.ndarray) -> object:
-    """Call torch_uwerr.gamma_method_mean on CPU float64 histories."""
+def _gamma_method(histories: np.ndarray) -> object:
+    """Call tensErr.gamma_method on CPU float64 histories."""
     torch = pytest.importorskip("torch")
-    torch_uwerr = pytest.importorskip("torch_uwerr")
+    tenserr = pytest.importorskip("tensErr")
     tensor = torch.as_tensor(histories, dtype=torch.float64, device="cpu")
-    return torch_uwerr.gamma_method_mean(tensor)
+    return tenserr.gamma_method(tensor)
 
 
 def _as_numpy_array(value: object) -> np.ndarray:
-    """Convert tensor-like gamma_method_mean field values to NumPy arrays."""
+    """Convert tensor-like gamma_method field values to NumPy arrays."""
     if hasattr(value, "detach"):
         value = value.detach().cpu().numpy()
     return np.asarray(value)
@@ -91,7 +93,7 @@ def _field_from_mapping(result: Mapping[object, object], field: str) -> object:
     for alias in FIELD_ALIASES[field]:
         if alias in result:
             return result[alias]
-    raise AssertionError(f"gamma_method_mean result does not contain {field!r}")
+    raise AssertionError(f"gamma_method result does not contain {field!r}")
 
 
 def _field_from_attributes(result: object, field: str) -> object:
@@ -99,11 +101,11 @@ def _field_from_attributes(result: object, field: str) -> object:
     for alias in FIELD_ALIASES[field]:
         if hasattr(result, alias):
             return getattr(result, alias)
-    raise AssertionError(f"gamma_method_mean result does not expose {field!r}")
+    raise AssertionError(f"gamma_method result does not expose {field!r}")
 
 
 def _normalize_result(result: object) -> dict[str, np.ndarray]:
-    """Normalize gamma_method_mean output to value, stderr, window, and tau_int arrays."""
+    """Normalize gamma_method output to value, stderr, window, and tau_int arrays."""
     if isinstance(result, Mapping):
         return {
             field: _as_numpy_array(_field_from_mapping(result, field))
@@ -140,23 +142,10 @@ def _fixed_histories() -> np.ndarray:
     )
 
 
-def _ar1_histories(rho: float) -> np.ndarray:
-    """Return deterministic stationary Gaussian AR(1) histories for a given rho."""
-    seed = 20260614 + int(round(1000.0 * rho))
-    rng = np.random.default_rng(seed)
-    innovations = rng.standard_normal((AR1_CHAIN_COUNT, AR1_SAMPLE_COUNT))
-    histories = np.empty_like(innovations)
-    histories[:, 0] = innovations[:, 0]
-    innovation_scale = np.sqrt(1.0 - rho * rho)
-    for t in range(1, AR1_SAMPLE_COUNT):
-        histories[:, t] = rho * histories[:, t - 1] + innovation_scale * innovations[:, t]
-    return histories
-
-
 def _assert_parity(histories: np.ndarray) -> None:
-    """Assert torch_uwerr gamma_method_mean fields match pyerrors replica semantics."""
+    """Assert tensErr gamma_method fields match pyerrors replica semantics."""
     expected = _pyerrors_reference(histories)
-    actual = _normalize_result(_gamma_method_mean(histories))
+    actual = _normalize_result(_gamma_method(histories))
     np.testing.assert_allclose(actual["value"], expected["value"], rtol=PARITY_RTOL, atol=PARITY_ATOL)
     np.testing.assert_allclose(
         actual["stderr"], expected["stderr"], rtol=PARITY_RTOL, atol=PARITY_ATOL
@@ -167,12 +156,12 @@ def _assert_parity(histories: np.ndarray) -> None:
     )
 
 
-def test_gamma_method_mean_matches_pyerrors_on_fixed_fixtures() -> None:
+def test_gamma_method_matches_pyerrors_on_fixed_fixtures() -> None:
     """Check value, stderr, window, and tau_int parity on deterministic fixtures."""
     _assert_parity(_fixed_histories())
 
 
-def test_gamma_method_mean_matches_pyerrors_on_batched_fixtures() -> None:
+def test_gamma_method_matches_pyerrors_on_batched_fixtures() -> None:
     """Check pyerrors parity for inputs shaped ``(B, R, N)``."""
     histories = np.stack((_fixed_histories()[:3], _fixed_histories()[1:]), axis=0)
 
@@ -180,6 +169,12 @@ def test_gamma_method_mean_matches_pyerrors_on_batched_fixtures() -> None:
 
 
 @pytest.mark.parametrize("rho", AR1_RHOS)
-def test_gamma_method_mean_matches_pyerrors_on_ar1_gaussian_chains(rho: float) -> None:
-    """Check gamma_method_mean parity on Gaussian AR(1) chains with parameter rho."""
-    _assert_parity(_ar1_histories(rho))
+def test_gamma_method_matches_pyerrors_on_scalar_ar1_replicas(rho: float) -> None:
+    """Check gamma_method parity on stationary scalar AR(1) replicas."""
+    histories = scalar_ar1_replica_histories(
+        AR1_REPLICA_COUNT,
+        AR1_SAMPLE_COUNT,
+        rho=rho,
+        seed=20260614 + int(round(1000.0 * rho)),
+    )
+    _assert_parity(histories.numpy())

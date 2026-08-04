@@ -1,11 +1,16 @@
-"""Tests for the public torch_uwerr gamma-method API."""
+"""Tests for the public tensErr gamma-method API."""
 
 import pytest
 import torch
 
-from torch_uwerr import (
+import tensErr
+from tensErr import (
     GammaMethodEstimate,
-    gamma_method_mean,
+    gamma_method,
+)
+from tests.ar1 import (
+    batched_scalar_ar1_replica_histories,
+    scalar_ar1_replica_histories,
 )
 
 
@@ -24,11 +29,19 @@ def direct_autocovariance(samples: torch.Tensor) -> torch.Tensor:
     return torch.stack(γ, dim=-1)
 
 
+def test_public_api_exports_only_the_gamma_method_name() -> None:
+    """The tensErr root exports ``gamma_method`` without the former mean suffix."""
+    former_api_name = "gamma_method" + "_mean"
+    assert tensErr.gamma_method is gamma_method
+    assert "gamma_method" in tensErr.__all__
+    assert not hasattr(tensErr, former_api_name)
+
+
 def manual_dense_chains(
     chunk: torch.Tensor,
     accumulation_dtype: torch.dtype,
 ) -> torch.Tensor:
-    """Return ``chunk`` normalized with gamma_method_mean's 1D replica semantics."""
+    """Return ``chunk`` normalized with gamma_method's 1D replica semantics."""
     x = torch.as_tensor(chunk).to(dtype=accumulation_dtype)
     if x.ndim == 1:
         return x.reshape(1, x.shape[0])
@@ -45,61 +58,7 @@ def manual_sample_shapes(chunk: torch.Tensor) -> torch.Tensor:
     )
 
 
-def _ar1_history(
-    history_shape: tuple[int, ...],
-    *,
-    rho: float,
-    seed: int,
-) -> torch.Tensor:
-    """Return an AR(1) tensor shaped as ``history_shape`` using ``rho`` and ``seed``."""
-    generator = torch.Generator()
-    generator.manual_seed(seed)
-    leading_shape = history_shape[:-1]
-    sample_count = history_shape[-1]
-    history = torch.empty(history_shape, dtype=torch.float64)
-    history[..., 0] = torch.randn(
-        leading_shape,
-        generator=generator,
-        dtype=torch.float64,
-    )
-    eps = torch.randn(
-        (*leading_shape, sample_count - 1),
-        generator=generator,
-        dtype=torch.float64,
-    )
-    innovation_scale = (1.0 - rho**2) ** 0.5
-    for sample_index in range(1, sample_count):
-        history[..., sample_index] = (
-            rho * history[..., sample_index - 1]
-            + innovation_scale * eps[..., sample_index - 1]
-        )
-    return history
-
-
-def ar1_replica_history(
-    replica_count: int,
-    sample_count: int,
-    *,
-    rho: float,
-    seed: int,
-) -> torch.Tensor:
-    """Return ``replica_count`` seeded AR(1) histories with ``sample_count`` samples."""
-    return _ar1_history((replica_count, sample_count), rho=rho, seed=seed)
-
-
-def ar1_batched_replica_history(
-    batch_count: int,
-    replica_count: int,
-    sample_count: int,
-    *,
-    rho: float,
-    seed: int,
-) -> torch.Tensor:
-    """Return ``batch_count`` batches of seeded AR(1) replica histories."""
-    return _ar1_history((batch_count, replica_count, sample_count), rho=rho, seed=seed)
-
-
-def manual_sample_weighted_gamma_method_mean(
+def manual_sample_weighted_gamma_method(
     chunks: tuple[torch.Tensor, ...],
     *,
     gamma_method_s: float = 2.0,
@@ -119,7 +78,7 @@ def manual_sample_weighted_gamma_method_mean(
 
     for chunk in dense_chunks:
         chunk_sample_count = chunk.shape[-2] * chunk.shape[-1]
-        chunk_estimate = gamma_method_mean(
+        chunk_estimate = gamma_method(
             chunk,
             gamma_method_s=gamma_method_s,
             accumulation_dtype=accumulation_dtype,
@@ -145,7 +104,7 @@ def manual_sample_weighted_gamma_method_mean(
     )
 
 
-def manual_replica_weighted_gamma_method_mean(
+def manual_replica_weighted_gamma_method(
     chunks: tuple[torch.Tensor, ...],
     *,
     gamma_method_s: float = 2.0,
@@ -165,7 +124,7 @@ def manual_replica_weighted_gamma_method_mean(
 
     for chunk in dense_chunks:
         chunk_replica_count = chunk.shape[-2]
-        chunk_estimate = gamma_method_mean(
+        chunk_estimate = gamma_method(
             chunk,
             gamma_method_s=gamma_method_s,
             accumulation_dtype=accumulation_dtype,
@@ -198,7 +157,7 @@ def additive_estimate(
 ) -> GammaMethodEstimate:
     """Return the sum-combined ``GammaMethodEstimate`` for ``chunks``."""
     return sum(
-        gamma_method_mean(
+        gamma_method(
             chunk,
             gamma_method_s=gamma_method_s,
             accumulation_dtype=torch.float64,
@@ -249,14 +208,14 @@ def assert_estimates_close(
 
 
 def test_shape_behavior_for_unbatched_and_batched_histories() -> None:
-    """gamma_method_mean returns scalar or batch-shaped tensors by input rank."""
+    """gamma_method returns scalar or batch-shaped tensors by input rank."""
     one_chain = torch.arange(7, dtype=torch.float32)
     two_chains = torch.arange(14, dtype=torch.float32).reshape(2, 7)
     batched = torch.arange(70, dtype=torch.float32).reshape(5, 2, 7)
 
-    one_estimate = gamma_method_mean(one_chain, return_autocorrelation=True)
-    two_estimate = gamma_method_mean(two_chains, return_autocorrelation=True)
-    batched_estimate = gamma_method_mean(batched, return_autocorrelation=True)
+    one_estimate = gamma_method(one_chain, return_autocorrelation=True)
+    two_estimate = gamma_method(two_chains, return_autocorrelation=True)
+    batched_estimate = gamma_method(batched, return_autocorrelation=True)
 
     assert isinstance(one_estimate, GammaMethodEstimate)
     assert one_estimate.value.shape == torch.Size([])
@@ -284,7 +243,7 @@ def test_shape_behavior_for_unbatched_and_batched_histories() -> None:
 
 def test_snr_is_absolute_for_negative_estimates() -> None:
     """GammaMethodEstimate.snr returns a nonnegative ratio for a negative value."""
-    estimate = gamma_method_mean(torch.tensor([-5.0, -4.0, -3.0, -2.0, -1.0]))
+    estimate = gamma_method(torch.tensor([-5.0, -4.0, -3.0, -2.0, -1.0]))
 
     torch.testing.assert_close(estimate.snr, torch.abs(estimate.value / estimate.stderr))
     assert estimate.snr.item() >= 0.0
@@ -295,8 +254,8 @@ def test_user_moved_data_normalizes_to_batch_chain_sample_layout() -> None:
     raw = torch.arange(2 * 7 * 3, dtype=torch.float64).reshape(2, 7, 3)
     normalized = torch.movedim(raw, -1, -2)
 
-    estimate = gamma_method_mean(normalized)
-    reference = gamma_method_mean(normalized.reshape(2, 3, 7))
+    estimate = gamma_method(normalized)
+    reference = gamma_method(normalized.reshape(2, 3, 7))
 
     assert estimate.value.shape == torch.Size([2])
     torch.testing.assert_close(estimate.value, reference.value)
@@ -313,7 +272,7 @@ def test_fft_autocovariance_matches_direct_lag_loop() -> None:
         dtype=torch.float64,
     )
 
-    estimate = gamma_method_mean(samples, return_autocorrelation=True)
+    estimate = gamma_method(samples, return_autocorrelation=True)
 
     assert estimate.autocovariance is not None
     torch.testing.assert_close(estimate.autocovariance, direct_autocovariance(samples))
@@ -323,7 +282,7 @@ def test_zero_variance_uses_pyerrors_degenerate_values() -> None:
     """A constant dense history has zero stderr and tau_int of one half."""
     samples = torch.full((3, 9), 4.25)
 
-    estimate = gamma_method_mean(samples, return_autocorrelation=True)
+    estimate = gamma_method(samples, return_autocorrelation=True)
 
     assert estimate.autocovariance is not None
     assert estimate.autocorrelation is not None
@@ -340,7 +299,7 @@ def test_zero_variance_uses_pyerrors_degenerate_values() -> None:
 
 def test_zero_value_with_zero_stderr_has_infinite_snr() -> None:
     """A constant zero history represents zero reported noise with infinite SNR."""
-    estimate = gamma_method_mean(torch.zeros((2, 8), dtype=torch.float64))
+    estimate = gamma_method(torch.zeros((2, 8), dtype=torch.float64))
 
     torch.testing.assert_close(estimate.value, torch.tensor(0.0, dtype=torch.float64))
     torch.testing.assert_close(estimate.stderr, torch.tensor(0.0, dtype=torch.float64))
@@ -353,7 +312,7 @@ def test_s_zero_standard_error_branch() -> None:
     γ = direct_autocovariance(samples)
     total_count = samples.numel()
 
-    estimate = gamma_method_mean(samples, gamma_method_s=0.0)
+    estimate = gamma_method(samples, gamma_method_s=0.0)
 
     torch.testing.assert_close(estimate.tau_int, torch.tensor(0.5, dtype=torch.float64))
     torch.testing.assert_close(estimate.C_f, γ[0])
@@ -371,7 +330,7 @@ def test_s_zero_C_f_does_not_retain_autocovariance_storage() -> None:
     """C_f owns compact storage when autocovariance diagnostics are omitted."""
     samples = torch.arange(32, dtype=torch.float64)
 
-    estimate = gamma_method_mean(samples, gamma_method_s=0.0)
+    estimate = gamma_method(samples, gamma_method_s=0.0)
 
     assert estimate.autocovariance is None
     assert estimate.autocorrelation is None
@@ -397,7 +356,7 @@ def test_s_two_automatic_window_branch() -> None:
     tau_int = τ_history[window] * (1 + (2 * window + 1) / total_count) / (1 + 1 / total_count)
     stderr = torch.sqrt(2 * tau_int * γ[0] * (1 + 1 / total_count) / total_count)
 
-    estimate = gamma_method_mean(samples, gamma_method_s=2.0)
+    estimate = gamma_method(samples, gamma_method_s=2.0)
 
     assert estimate.window.item() == window
     torch.testing.assert_close(estimate.tau_int, tau_int)
@@ -411,7 +370,7 @@ def test_s_two_automatic_window_branch() -> None:
 
 def test_estimate_addition_matches_manual_combination_for_uneven_chunks() -> None:
     """GammaMethodEstimate addition combines uneven replica chunks exactly."""
-    history = ar1_replica_history(
+    history = scalar_ar1_replica_histories(
         replica_count=6,
         sample_count=14,
         rho=0.65,
@@ -420,7 +379,7 @@ def test_estimate_addition_matches_manual_combination_for_uneven_chunks() -> Non
     chunks = torch.split(history, (2, 1, 3), dim=-2)
 
     actual = additive_estimate(chunks)
-    expected = manual_sample_weighted_gamma_method_mean(chunks)
+    expected = manual_sample_weighted_gamma_method(chunks)
 
     assert_combined_diagnostics_absent(actual)
     assert_estimates_close(actual, expected)
@@ -428,11 +387,11 @@ def test_estimate_addition_matches_manual_combination_for_uneven_chunks() -> Non
 
 def test_estimate_addition_sample_weights_C_f() -> None:
     """GammaMethodEstimate addition sample-weights the summed autocovariances."""
-    left = gamma_method_mean(
-        ar1_replica_history(replica_count=2, sample_count=10, rho=0.4, seed=11)
+    left = gamma_method(
+        scalar_ar1_replica_histories(replica_count=2, sample_count=10, rho=0.4, seed=11)
     )
-    right = gamma_method_mean(
-        ar1_replica_history(replica_count=3, sample_count=12, rho=0.7, seed=12)
+    right = gamma_method(
+        scalar_ar1_replica_histories(replica_count=3, sample_count=12, rho=0.7, seed=12)
     )
     left_count = left.sample_shapes.sum().to(dtype=left.C_f.dtype)
     right_count = right.sample_shapes.sum().to(dtype=right.C_f.dtype)
@@ -447,7 +406,7 @@ def test_estimate_addition_sample_weights_C_f() -> None:
 
 def test_estimate_addition_matches_manual_combination_for_one_replica_chunks() -> None:
     """GammaMethodEstimate addition accepts chunks containing one replica each."""
-    history = ar1_replica_history(
+    history = scalar_ar1_replica_histories(
         replica_count=4,
         sample_count=12,
         rho=0.7,
@@ -456,7 +415,7 @@ def test_estimate_addition_matches_manual_combination_for_one_replica_chunks() -
     chunks = tuple(history[index : index + 1] for index in range(history.shape[-2]))
 
     actual = additive_estimate(chunks)
-    expected = manual_sample_weighted_gamma_method_mean(chunks)
+    expected = manual_sample_weighted_gamma_method(chunks)
 
     assert_combined_diagnostics_absent(actual)
     assert_estimates_close(actual, expected)
@@ -464,7 +423,7 @@ def test_estimate_addition_matches_manual_combination_for_one_replica_chunks() -
 
 def test_estimate_addition_matches_manual_combination_for_1d_replica_chunks() -> None:
     """GammaMethodEstimate addition treats each 1D chunk as one complete replica."""
-    history = ar1_replica_history(
+    history = scalar_ar1_replica_histories(
         replica_count=4,
         sample_count=12,
         rho=0.7,
@@ -473,7 +432,7 @@ def test_estimate_addition_matches_manual_combination_for_1d_replica_chunks() ->
     chunks = tuple(history[index] for index in range(history.shape[-2]))
 
     actual = additive_estimate(chunks)
-    expected = manual_sample_weighted_gamma_method_mean(chunks)
+    expected = manual_sample_weighted_gamma_method(chunks)
 
     assert actual.value.shape == torch.Size([])
     assert_combined_diagnostics_absent(actual)
@@ -482,7 +441,7 @@ def test_estimate_addition_matches_manual_combination_for_1d_replica_chunks() ->
 
 def test_estimate_addition_matches_manual_combination_for_batched_histories() -> None:
     """GammaMethodEstimate addition preserves leading batch dimensions."""
-    history = ar1_batched_replica_history(
+    history = batched_scalar_ar1_replica_histories(
         batch_count=3,
         replica_count=5,
         sample_count=16,
@@ -492,7 +451,7 @@ def test_estimate_addition_matches_manual_combination_for_batched_histories() ->
     chunks = torch.split(history, (2, 1, 2), dim=-2)
 
     actual = additive_estimate(chunks)
-    expected = manual_sample_weighted_gamma_method_mean(chunks)
+    expected = manual_sample_weighted_gamma_method(chunks)
 
     assert actual.value.shape == torch.Size([3])
     assert_combined_diagnostics_absent(actual)
@@ -501,11 +460,11 @@ def test_estimate_addition_matches_manual_combination_for_batched_histories() ->
 
 def test_estimate_addition_rejects_broadcastable_batch_shape_mismatch() -> None:
     """GammaMethodEstimate addition rejects broadcast-compatible batch mismatches."""
-    scalar_estimate = gamma_method_mean(
-        ar1_replica_history(replica_count=2, sample_count=16, rho=0.6, seed=2024)
+    scalar_estimate = gamma_method(
+        scalar_ar1_replica_histories(replica_count=2, sample_count=16, rho=0.6, seed=2024)
     )
-    singleton_batched_estimate = gamma_method_mean(
-        ar1_batched_replica_history(
+    singleton_batched_estimate = gamma_method(
+        batched_scalar_ar1_replica_histories(
             batch_count=1,
             replica_count=2,
             sample_count=16,
@@ -513,8 +472,8 @@ def test_estimate_addition_rejects_broadcastable_batch_shape_mismatch() -> None:
             seed=2025,
         )
     )
-    batched_estimate = gamma_method_mean(
-        ar1_batched_replica_history(
+    batched_estimate = gamma_method(
+        batched_scalar_ar1_replica_histories(
             batch_count=3,
             replica_count=2,
             sample_count=16,
@@ -533,7 +492,7 @@ def test_estimate_addition_rejects_broadcastable_batch_shape_mismatch() -> None:
 
 def test_estimate_addition_matches_manual_combination_for_s_zero() -> None:
     """GammaMethodEstimate addition handles the ``S=0`` standard-error branch."""
-    history = ar1_replica_history(
+    history = scalar_ar1_replica_histories(
         replica_count=5,
         sample_count=10,
         rho=0.5,
@@ -542,7 +501,7 @@ def test_estimate_addition_matches_manual_combination_for_s_zero() -> None:
     chunks = torch.split(history, (3, 2), dim=-2)
 
     actual = additive_estimate(chunks, gamma_method_s=0.0)
-    expected = manual_sample_weighted_gamma_method_mean(
+    expected = manual_sample_weighted_gamma_method(
         chunks,
         gamma_method_s=0.0,
     )
@@ -559,7 +518,7 @@ def test_estimate_addition_matches_manual_combination_for_zero_variance() -> Non
     )
 
     actual = additive_estimate(chunks)
-    expected = manual_sample_weighted_gamma_method_mean(chunks)
+    expected = manual_sample_weighted_gamma_method(chunks)
 
     assert_combined_diagnostics_absent(actual)
     assert_estimates_close(actual, expected)
@@ -567,14 +526,14 @@ def test_estimate_addition_matches_manual_combination_for_zero_variance() -> Non
 
 def test_additive_stderr_equation_reproduces_accumulator_for_equal_lengths() -> None:
     """Sample-count stderr weights reduce to old replica weights for equal ``N``."""
-    history = ar1_replica_history(
+    history = scalar_ar1_replica_histories(
         replica_count=6,
         sample_count=14,
         rho=0.65,
         seed=1729,
     )
     chunks = torch.split(history, (2, 1, 3), dim=-2)
-    estimates = tuple(gamma_method_mean(chunk) for chunk in chunks)
+    estimates = tuple(gamma_method(chunk) for chunk in chunks)
     sample_counts = torch.stack(
         [
             estimate.sample_shapes.sum().to(dtype=estimate.stderr.dtype)
@@ -594,8 +553,8 @@ def test_additive_stderr_equation_reproduces_accumulator_for_equal_lengths() -> 
     ) / replica_counts.sum()
 
     actual = sum(estimates)
-    sample_weighted = manual_sample_weighted_gamma_method_mean(chunks)
-    old_accumulator = manual_replica_weighted_gamma_method_mean(chunks)
+    sample_weighted = manual_sample_weighted_gamma_method(chunks)
+    old_accumulator = manual_replica_weighted_gamma_method(chunks)
 
     assert_combined_diagnostics_absent(actual)
     torch.testing.assert_close(sample_weighted_stderr, replica_weighted_stderr)
@@ -606,13 +565,13 @@ def test_additive_stderr_equation_reproduces_accumulator_for_equal_lengths() -> 
 
 def test_estimate_addition_handles_unequal_replica_sample_lengths() -> None:
     """GammaMethodEstimate addition weights chunks by total samples from ``sample_shapes``."""
-    short_chunk = ar1_replica_history(
+    short_chunk = scalar_ar1_replica_histories(
         replica_count=2,
         sample_count=10,
         rho=0.5,
         seed=2468,
     )
-    long_chunk = ar1_replica_history(
+    long_chunk = scalar_ar1_replica_histories(
         replica_count=1,
         sample_count=15,
         rho=0.5,
@@ -621,7 +580,7 @@ def test_estimate_addition_handles_unequal_replica_sample_lengths() -> None:
     chunks = (short_chunk, long_chunk)
 
     actual = additive_estimate(chunks)
-    expected = manual_sample_weighted_gamma_method_mean(chunks)
+    expected = manual_sample_weighted_gamma_method(chunks)
 
     assert_combined_diagnostics_absent(actual)
     torch.testing.assert_close(
@@ -633,7 +592,7 @@ def test_estimate_addition_handles_unequal_replica_sample_lengths() -> None:
 
 def test_estimate_addition_ar1_fixture_value_matches_and_uncertainty_diverges() -> None:
     """GammaMethodEstimate addition matches seeded AR(1) value but not pooled diagnostics."""
-    history = ar1_replica_history(
+    history = scalar_ar1_replica_histories(
         replica_count=6,
         sample_count=48,
         rho=0.82,
@@ -642,7 +601,7 @@ def test_estimate_addition_ar1_fixture_value_matches_and_uncertainty_diverges() 
     chunks = torch.split(history, (2, 1, 3), dim=-2)
 
     actual = additive_estimate(chunks)
-    expected = gamma_method_mean(history)
+    expected = gamma_method(history)
     stderr_divergence = (actual.stderr - expected.stderr).abs()
     tau_int_divergence = (actual.tau_int - expected.tau_int).abs()
 
@@ -654,25 +613,25 @@ def test_estimate_addition_ar1_fixture_value_matches_and_uncertainty_diverges() 
     assert tau_int_divergence.item() >= 0.0
     torch.testing.assert_close(
         stderr_divergence,
-        torch.tensor(0.02644710374078839, dtype=torch.float64),
+        torch.tensor(0.029046691549077686, dtype=torch.float64),
         rtol=1e-10,
         atol=1e-12,
     )
     torch.testing.assert_close(
         actual.stderr / expected.stderr,
-        torch.tensor(1.2187913728302469, dtype=torch.float64),
+        torch.tensor(1.1495439619568015, dtype=torch.float64),
         rtol=1e-10,
         atol=1e-12,
     )
     torch.testing.assert_close(
         tau_int_divergence,
-        torch.tensor(0.9856817271764671, dtype=torch.float64),
+        torch.tensor(0.9522565944272499, dtype=torch.float64),
         rtol=1e-10,
         atol=1e-12,
     )
     torch.testing.assert_close(
         actual.tau_int / expected.tau_int,
-        torch.tensor(1.4050483640558546, dtype=torch.float64),
+        torch.tensor(1.413654233321005, dtype=torch.float64),
         rtol=1e-10,
         atol=1e-12,
     )
@@ -681,7 +640,7 @@ def test_estimate_addition_ar1_fixture_value_matches_and_uncertainty_diverges() 
 def test_estimate_addition_ar1_ratios_move_toward_dense_with_more_replicas() -> None:
     """More seeded AR(1) replicas move chunked ratios closer to dense estimates."""
     replica_counts = (8, 16, 32, 64)
-    full_history = ar1_replica_history(
+    full_history = scalar_ar1_replica_histories(
         replica_count=max(replica_counts),
         sample_count=24,
         rho=0.5,
@@ -696,7 +655,7 @@ def test_estimate_addition_ar1_ratios_move_toward_dense_with_more_replicas() -> 
         chunks = torch.split(history, chunk_sizes, dim=-2)
 
         actual = additive_estimate(chunks)
-        expected = gamma_method_mean(history)
+        expected = gamma_method(history)
 
         assert_combined_diagnostics_absent(actual)
         torch.testing.assert_close(actual.value, expected.value)
@@ -720,10 +679,10 @@ def test_estimate_addition_ar1_ratios_move_toward_dense_with_more_replicas() -> 
         stderr_ratio,
         torch.tensor(
             [
-                1.246739593582284,
-                1.163023571870329,
-                1.0702056531638289,
-                1.070701989881707,
+                1.1307114331392887,
+                1.111707508959064,
+                1.0968856539833958,
+                1.0744040814280666,
             ],
             dtype=torch.float64,
         ),
@@ -734,10 +693,10 @@ def test_estimate_addition_ar1_ratios_move_toward_dense_with_more_replicas() -> 
         tau_int_ratio,
         torch.tensor(
             [
-                1.582533400277406,
-                1.3403826954786817,
-                1.122178943122221,
-                1.1413860839166483,
+                1.2135030271724587,
+                1.208544956133486,
+                1.1882071786901574,
+                1.1440650708512967,
             ],
             dtype=torch.float64,
         ),

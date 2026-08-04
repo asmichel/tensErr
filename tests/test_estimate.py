@@ -4,11 +4,11 @@ from dataclasses import fields
 
 import torch
 
-from torch_uwerr import (
+from tensErr import (
     Estimate,
     GammaMethodEstimate,
     VectorNormGammaMethodEstimate,
-    gamma_method_mean,
+    gamma_method,
     vector_norm_gamma_method,
 )
 
@@ -33,7 +33,7 @@ def test_snr_uses_absolute_ratio_and_infinite_zero_error_contract() -> None:
 
 def test_gamma_and_vector_results_inherit_estimate() -> None:
     """Both public result types implement the shared Estimate interface."""
-    gamma_estimate = gamma_method_mean(
+    gamma_estimate = gamma_method(
         torch.tensor([1.0, 2.0, 3.0, 4.0], dtype=torch.float64)
     )
     vector_estimate = vector_norm_gamma_method(

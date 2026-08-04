@@ -1,4 +1,11 @@
-# Stable Stationary Reflection-Invariant AR(1) Vector Model
+# Stable Stationary Gaussian AR(1) Conventions
+
+All scalar and vector AR(1) test fixtures use unit innovation covariance and
+are initialized exactly in their stationary distributions. A seeded CPU-local
+Torch generator supplies the Gaussian draws, so fixture construction neither
+requires burn-in nor mutates Torch's global random-number state.
+
+## Symmetric vector model
 
 Assume the vector AR(1) model
 
@@ -6,26 +13,14 @@ Assume the vector AR(1) model
 x_t=b+Ax_{t-1}+\varepsilon_t,\qquad x_t\in\mathbb{R}^d,
 ```
 
-with second-order white noise satisfying
+with independent Gaussian noise satisfying
 
 ```math
-\mathbb{E}[\varepsilon_t]=0,\qquad
-\mathrm{Cov}(\varepsilon_t)\succ0,\qquad
+\varepsilon_t\sim N(0,I),\qquad
 \mathrm{Cov}(\varepsilon_t,\varepsilon_s)=0\quad(t\ne s),
 ```
 
-and with $`\varepsilon_t`$ uncorrelated with the past. Since
-$`\mathrm{Cov}(\varepsilon_t)`$ is positive definite, rescale
-
-```math
-x_t\rightarrow \mathrm{Cov}(\varepsilon_t)^{-1/2}x_t.
-```
-
-and instead consider the simplified model with
-
-```math
-\mathrm{Cov}(\varepsilon_t)=I\,.
-```
+and with $`\varepsilon_t`$ independent of the past.
 
 Assume stability and
 reflection invariance in the normalized coordinates:
@@ -73,4 +68,28 @@ Define the summed autocovariance matrix $`C`$ by
 C:=\sum_{h\in\mathbb{Z}}\Gamma(h)
 =\left[\sum_{h\in\mathbb{Z}}A^{|h|}\right](I-A^2)^{-1}
 =(I-A)^{-2}.
+```
+
+## Scalar specialization
+
+The scalar fixtures are the $`d=1`$ specialization with $`A=\rho``,
+$`|\rho|<1`$, stationary mean $`\mu`$, and $`b=(1-\rho)\mu`$:
+
+```math
+x_t=\mu+\rho(x_{t-1}-\mu)+\varepsilon_t,
+\qquad \varepsilon_t\sim N(0,1).
+```
+
+They are initialized as
+
+```math
+x_0\sim N\!\left(\mu,\frac{1}{1-\rho^2}\right).
+```
+
+Consequently,
+
+```math
+\Gamma(h)=\frac{\rho^{|h|}}{1-\rho^2},
+\qquad
+C=\sum_{h\in\mathbb Z}\Gamma(h)=\frac{1}{(1-\rho)^2}.
 ```
