@@ -134,16 +134,25 @@ The reported value and standard error are
 | `stderr` | $`\mathrm{stderr}(\widehat{\lVert x\rVert})`$ |
 | `snr` | $`\lvert\mathrm{value}\rvert/\mathrm{stderr}`$ if $`\mathrm{stderr}\gt0`$; $`+\infty`$ if $`\mathrm{stderr}=0`$ |
 | `stderr_of_stderr` | Estimated uncertainty of `stderr` |
-| `Q_bar_tau_int` | Integrated autocorrelation time $`\tau_Q`$ of the $`Q_i`$ history |
-| `Q_bar_C_f` | Summed autocovariance $`C_Q`$ of the $`Q_i`$ history |
+| `tau_int` | Integrated autocorrelation time $`\tau_Q`$, which is unchanged by propagation to the norm |
+| `C_f` | Propagated summed autocovariance $`C_{\lVert x\rVert}=K C_Q/(R\lvert\bar Q\rvert)`$ |
+| `window` | Selected maximum lag; `None` on a combined estimate |
+| `sample_shapes` | Length of every original vector replica |
 | `replica_count` | Total replica count $`R`$ |
 | `widehat_count` | Widehat replica count $`M`$ |
 | `widecheck_count` | Widecheck replica count $`K=R-M`$ |
-| `sample_count` | Samples per replica $`N`$ |
-| `Q_bar_autocovariance` | $`\Gamma_Q(t)`$ when requested; otherwise `None` |
-| `Q_bar_autocorrelation` | $`\rho_Q(t)`$ when requested; otherwise `None` |
+| `autocovariance` | Propagated $`\Gamma_{\lVert x\rVert}(t)=K\Gamma_Q(t)/(R\lvert\bar Q\rvert)`$ when requested; otherwise `None` |
+| `autocorrelation` | $`\rho_Q(t)`$, which is unchanged by propagation to the norm, when requested; otherwise `None` |
+| `Q_bar_C_f` | Unpropagated $`C_Q`$ for a direct estimate; `None` on a combined estimate |
+| `Q_bar_autocovariance` | Unpropagated $`\Gamma_Q(t)`$ when requested; otherwise `None` |
 
 Error propagation through the square root is singular when `value` is zero.
+
+`VectorNormGammaMethodEstimate` inherits `GammaMethodEstimate`. Adding two
+vector-norm estimates therefore returns another vector-norm estimate, weighted
+by their total original sample counts $`RN`$. Replica-block counts are added,
+`sample_shapes` are concatenated, and dense-history and raw $`Q`$ diagnostics
+are `None` on the combined result.
 
 `vector_norm_gamma_method` is the lower-level entrypoint for callers that
 already have the $`Q_i`$ history. It accepts `Q_history` with shape

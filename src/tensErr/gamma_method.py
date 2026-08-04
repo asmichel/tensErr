@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import torch
 
@@ -27,7 +27,7 @@ class GammaMethodEstimate(Estimate):
 
     def __add__(self, other: object) -> GammaMethodEstimate:
         """Return the sample-count-weighted combination of ``self`` and ``other``."""
-        if not isinstance(other, GammaMethodEstimate):
+        if not isinstance(other, GammaMethodEstimate) or type(self) is not type(other):
             return NotImplemented
 
         self_batch_shapes = (self.value.shape, self.stderr.shape, self.tau_int.shape)
@@ -57,7 +57,8 @@ class GammaMethodEstimate(Estimate):
             self_sample_count * self.C_f
             + other_sample_count * other.C_f
         ) / total_sample_count
-        return GammaMethodEstimate(
+        return replace(
+            self,
             value=value,
             stderr=stderr,
             tau_int=tau_int,
@@ -67,7 +68,15 @@ class GammaMethodEstimate(Estimate):
             window=None,
             autocovariance=None,
             autocorrelation=None,
+            **self._addition_field_updates(other),
         )
+
+    def _addition_field_updates(
+        self,
+        other: GammaMethodEstimate,
+    ) -> dict[str, object]:
+        """Return subclass field updates required when combining with ``other``."""
+        return {}
 
     def __radd__(self, other: object) -> GammaMethodEstimate:
         """Return ``self`` for Python ``sum``'s zero start or defer addition."""

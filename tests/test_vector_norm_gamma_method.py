@@ -94,7 +94,10 @@ def _check_ar1_norm(
     assert estimate.replica_count == replica_count
     assert estimate.widehat_count == replica_count // 2
     assert estimate.widecheck_count == replica_count // 2
-    assert estimate.sample_count == sample_count
+    torch.testing.assert_close(
+        estimate.sample_shapes,
+        torch.full((replica_count,), sample_count, dtype=torch.long),
+    )
     torch.testing.assert_close(
         estimate.value,
         exact_norm,
@@ -124,13 +127,20 @@ def test_ar1_large_even_r() -> None:
         return_autocorrelation=True,
     )
 
+    assert estimate.autocovariance is not None
+    assert estimate.autocorrelation is not None
     assert estimate.Q_bar_autocovariance is not None
-    assert estimate.Q_bar_autocorrelation is not None
+    assert estimate.Q_bar_C_f is not None
+    assert estimate.autocovariance.shape == torch.Size([sample_count // 2])
+    assert estimate.autocorrelation.shape == torch.Size([sample_count // 2])
     assert estimate.Q_bar_autocovariance.shape == torch.Size([sample_count // 2])
-    assert estimate.Q_bar_autocorrelation.shape == torch.Size([sample_count // 2])
     torch.testing.assert_close(
         estimate.Q_bar_C_f,
-        2 * estimate.Q_bar_tau_int * estimate.Q_bar_autocovariance[0],
+        2 * estimate.tau_int * estimate.Q_bar_autocovariance[0],
+    )
+    torch.testing.assert_close(
+        estimate.C_f,
+        2 * estimate.tau_int * estimate.autocovariance[0],
     )
 
 
@@ -282,6 +292,7 @@ def test_s_zero_reports_Q_replica_mean_variance_without_reconstructing_stderr() 
         gamma_method_s=0.0,
     )
 
+    assert estimate.Q_bar_C_f is not None
     torch.testing.assert_close(
         estimate.Q_bar_C_f,
         torch.var(Q_replica_means, correction=0),
@@ -290,3 +301,89 @@ def test_s_zero_reports_Q_replica_mean_variance_without_reconstructing_stderr() 
         estimate.Q_bar_C_f * Q_replica_means.numel() / (Q_replica_means.numel() - 1),
         torch.var(Q_replica_means, correction=1),
     )
+
+
+def test_addition_preserves_vector_subtype_and_combines_replica_metadata() -> None:
+    """Vector addition returns its subtype with sample-weighted common fields."""
+    left = vector_norm_gamma_method(
+        torch.tensor([1.0, 2.0, 3.0, 2.0, 4.0, 3.0, 5.0, 4.0]),
+        replica_count=4,
+        widehat_count=2,
+    )
+    right = vector_norm_gamma_method(
+        torch.tensor([2.0, 4.0, 3.0, 5.0, 4.0, 6.0, 5.0, 7.0, 6.0, 8.0]),
+        replica_count=6,
+        widehat_count=2,
+    )
+    left_count = left.sample_shapes.sum().to(dtype=left.value.dtype)
+    right_count = right.sample_shapes.sum().to(dtype=right.value.dtype)
+    total_count = left_count + right_count
+
+    combined = left + right
+
+    assert isinstance(combined, VectorNormGammaMethodEstimate)
+    assert combined.replica_count == 10
+    assert combined.widehat_count == 4
+    assert combined.widecheck_count == 6
+    torch.testing.assert_close(
+        combined.sample_shapes,
+        torch.tensor([8, 8, 8, 8, 10, 10, 10, 10, 10, 10]),
+    )
+    torch.testing.assert_close(
+        combined.value,
+        (left_count * left.value + right_count * right.value) / total_count,
+    )
+    torch.testing.assert_close(
+        combined.stderr,
+        torch.sqrt(
+            (left_count * left.stderr).square()
+            + (right_count * right.stderr).square()
+        )
+        / total_count,
+    )
+    torch.testing.assert_close(
+        combined.tau_int,
+        (left_count * left.tau_int + right_count * right.tau_int) / total_count,
+    )
+    torch.testing.assert_close(
+        combined.C_f,
+        (left_count * left.C_f + right_count * right.C_f) / total_count,
+    )
+    torch.testing.assert_close(combined.snr, torch.abs(combined.value) / combined.stderr)
+    assert combined.stderr_of_stderr is None
+    assert combined.window is None
+    assert combined.autocovariance is None
+    assert combined.autocorrelation is None
+    assert combined.Q_bar_C_f is None
+    assert combined.Q_bar_autocovariance is None
+
+
+def test_sum_preserves_vector_estimate_subtype() -> None:
+    """Python ``sum`` combines vector estimates without erasing their subtype."""
+    estimate = vector_norm_gamma_method(
+        torch.tensor([1.0, 3.0, 2.0, 4.0, 3.0, 5.0]),
+        replica_count=4,
+        widehat_count=2,
+    )
+
+    combined = sum((estimate, estimate))
+
+    assert isinstance(combined, VectorNormGammaMethodEstimate)
+    assert combined.replica_count == 8
+
+
+def test_addition_rejects_mixed_gamma_estimate_types() -> None:
+    """Addition rejects a vector estimate paired with a plain gamma estimate."""
+    vector_estimate = vector_norm_gamma_method(
+        torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0]),
+        replica_count=4,
+        widehat_count=2,
+    )
+    scalar_estimate = gamma_method(
+        torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0]).unsqueeze(0)
+    )
+
+    with pytest.raises(TypeError):
+        _ = vector_estimate + scalar_estimate
+    with pytest.raises(TypeError):
+        _ = scalar_estimate + vector_estimate

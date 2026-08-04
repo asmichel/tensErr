@@ -3,29 +3,41 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
 import torch
 
-from tensErr.estimate import Estimate
-from tensErr.gamma_method import gamma_method
+from tensErr.gamma_method import GammaMethodEstimate, gamma_method
 
 
-@dataclass(frozen=True, slots=True)
-class VectorNormGammaMethodEstimate(Estimate):
-    """Hold norm estimates and gamma-method diagnostics for ``Q_bar``.
+@dataclass(frozen=True, slots=True, kw_only=True)
+class VectorNormGammaMethodEstimate(GammaMethodEstimate):
+    """Hold propagated norm estimates and their gamma-method diagnostics.
 
-    ``Q_bar_C_f`` is the summed autocovariance of the input ``Q_history``.
+    Inherited gamma-method fields describe the returned norm estimate.
+    ``Q_bar_C_f`` and ``Q_bar_autocovariance`` retain the corresponding raw
+    ``Q_history`` diagnostics for direct, uncombined estimates.
     """
 
-    stderr_of_stderr: torch.Tensor
-    Q_bar_tau_int: torch.Tensor
-    Q_bar_C_f: torch.Tensor
     replica_count: int
     widehat_count: int
     widecheck_count: int
-    sample_count: int
+    Q_bar_C_f: torch.Tensor | None
     Q_bar_autocovariance: torch.Tensor | None
-    Q_bar_autocorrelation: torch.Tensor | None
+
+    def _addition_field_updates(
+        self,
+        other: GammaMethodEstimate,
+    ) -> dict[str, object]:
+        """Return vector metadata updates when combining with ``other``."""
+        other_vector = cast(VectorNormGammaMethodEstimate, other)
+        return {
+            "replica_count": self.replica_count + other_vector.replica_count,
+            "widehat_count": self.widehat_count + other_vector.widehat_count,
+            "widecheck_count": self.widecheck_count + other_vector.widecheck_count,
+            "Q_bar_C_f": None,
+            "Q_bar_autocovariance": None,
+        }
 
 
 def vector_norm_gamma_method(
@@ -65,18 +77,32 @@ def vector_norm_gamma_method(
     norm_sq_stderr_of_stderr = norm_sq_stderr_scale * Q.stderr_of_stderr
     norm = torch.sign(norm_sq) * torch.sqrt(torch.abs(norm_sq))
     norm_magnitude = torch.abs(norm)
+    norm_autocovariance_scale = K / (R * norm_magnitude.square())
+    norm_autocovariance = (
+        None
+        if Q.autocovariance is None
+        else norm_autocovariance_scale.unsqueeze(-1) * Q.autocovariance
+    )
     return VectorNormGammaMethodEstimate(
         value=norm,
         stderr=0.5 * norm_sq_stderr / norm_magnitude,
+        tau_int=Q.tau_int,
+        C_f=norm_autocovariance_scale * Q.C_f,
+        sample_shapes=torch.full(
+            (R,),
+            Q_tensor.shape[-1],
+            dtype=torch.long,
+            device=Q_tensor.device,
+        ),
         stderr_of_stderr=0.5 * norm_sq_stderr_of_stderr / norm_magnitude,
-        Q_bar_tau_int=Q.tau_int,
-        Q_bar_C_f=Q.C_f,
+        window=Q.window,
+        autocovariance=norm_autocovariance,
+        autocorrelation=Q.autocorrelation,
         replica_count=R,
         widehat_count=M,
         widecheck_count=K,
-        sample_count=Q_tensor.shape[-1],
+        Q_bar_C_f=Q.C_f,
         Q_bar_autocovariance=Q.autocovariance,
-        Q_bar_autocorrelation=Q.autocorrelation,
     )
 
 

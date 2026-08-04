@@ -59,6 +59,7 @@ def test_gamma_and_vector_results_inherit_estimate() -> None:
     assert isinstance(gamma_estimate, Estimate)
     assert isinstance(gamma_estimate, GammaMethodEstimate)
     assert isinstance(vector_estimate, Estimate)
+    assert isinstance(vector_estimate, GammaMethodEstimate)
     assert isinstance(vector_estimate, VectorNormGammaMethodEstimate)
     assert gamma_estimate.stderr_of_stderr is not None
     assert isinstance(vector_estimate.stderr_of_stderr, torch.Tensor)

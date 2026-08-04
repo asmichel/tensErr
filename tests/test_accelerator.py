@@ -108,10 +108,14 @@ def test_vector_norm_helper_matches_cpu_on_accelerator() -> None:
         (
             "value",
             "stderr",
+            "tau_int",
+            "C_f",
+            "sample_shapes",
             "stderr_of_stderr",
-            "Q_bar_tau_int",
+            "window",
+            "autocovariance",
+            "autocorrelation",
             "Q_bar_C_f",
             "Q_bar_autocovariance",
-            "Q_bar_autocorrelation",
         ),
     )
