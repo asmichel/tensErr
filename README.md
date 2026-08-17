@@ -119,19 +119,19 @@ The reported value and standard error are
 ```math
 \bar Q = \frac{1}{N}\sum_{i=1}^{N}Q_i,
 \qquad
-\widehat{\lVert x\rVert}
+\mathrm{value}
 = \mathrm{sign}(\bar Q)\sqrt{|\bar Q|},
 \qquad
-\mathrm{stderr}(\widehat{\lVert x\rVert})
-= \frac{\sqrt{K/R}\,\delta_Q}{|\widehat{\lVert x\rVert}|}.
+\mathrm{stderr}
+= \frac{\sqrt{K/R}\,\delta_Q}{|\mathrm{value}|}.
 ```
 
 `compute()` returns a `VectorNormGammaMethodEstimate`:
 
 | Field | Meaning |
 | --- | --- |
-| `value` | $`\widehat{\lVert x\rVert}`$ |
-| `stderr` | $`\mathrm{stderr}(\widehat{\lVert x\rVert})`$ |
+| `value` | $`\mathrm{sign}(\bar Q)\sqrt{|\bar Q|}`$ |
+| `stderr` | $`\sqrt{K/R}\,\delta_Q/|\mathrm{value}|`$ |
 | `snr` | $`\lvert\mathrm{value}\rvert/\mathrm{stderr}`$ if $`\mathrm{stderr}\gt0`$; $`+\infty`$ if $`\mathrm{stderr}=0`$ |
 | `stderr_of_stderr` | Estimated uncertainty of `stderr` |
 | `tau_int` | Integrated autocorrelation time $`\tau_Q`$, which is unchanged by propagation to the norm |
