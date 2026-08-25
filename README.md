@@ -54,24 +54,27 @@ Combining estimates concatenates `sample_shapes`; `stderr_of_stderr`, `window`,
 
 ## Efficient norm and error for autocorrelated vectors
 
-The standard interface is `VectorNormGammaMethodHelper`. Let $`X_i^r`$ be
-sample $`i`$ from replica $`r`$, where each sample is a $`d`$-dimensional
-vector. The $`R`$ replicas are independent, each replica may be autocorrelated
-in $`i`$, all have length $`N`$, and $`x=\mathbb{E}[X_i^r]`$ is their common
-mean. The helper estimates $`\lVert x\rVert`$ and its standard error.
+The standard interface is `VectorNormGammaMethodHelper`. Let $`X_{im}`$ and
+$`Y_{ik}`$ be sample $`i`$ from replicas $`m`$ and $`k`$ in two independent
+blocks of sizes $`M`$ and $`K=R-M`$. Each sample is a $`d`$-dimensional vector,
+each replica may be autocorrelated in $`i`$, all have length $`N`$, and
+$`x=\mathbb{E}[X_{im}]=\mathbb{E}[Y_{ik}]`$ is their common mean. The helper
+estimates $`\lVert x\rVert`$ and its standard error.
 
-Split the replicas into a first (widehat) block of size $`M`$ and a second
-(widecheck) block of size $`K=R-M`$. The helper accumulates
+A wide check denotes a replica average and an overline the subsequent Markov
+average. The helper accumulates
 
 ```math
-\bar X^r = \frac{1}{N}\sum_{i=1}^{N}X_i^r,
+\widecheck X_i
+:= \frac{1}{M}\sum_{m=1}^{M}X_{im},
 \qquad
-\widehat{\bar X}
-= \frac{1}{M}\sum_{r=1}^{M}\bar X^r,
+\widecheck{\overline X}
+:= \frac{1}{N}\sum_{i=1}^{N}\widecheck X_i,
 \qquad
-q_i^r = \widehat{\bar X}\mathbin{\cdot}X_i^r,
+\widecheck Y_i
+:= \frac{1}{K}\sum_{k=1}^{K}Y_{ik},
 \qquad
-Q_i = \frac{1}{K}\sum_{r=M+1}^{R}q_i^r.
+Q_i := \widecheck{\overline X}\mathbin{\cdot}\widecheck Y_i.
 ```
 
 With the replica counts known at construction and these reduced terms
@@ -80,10 +83,11 @@ streamed, the helper uses $`O(N+d)`$ working memory
 compared with $`O(NRd)`$ for a naive retained-history analysis
 ([problem statement](notes/theory/gradient-diagnostic.md#problem-statement)).
 
-In the example below, `widehat_replica_means` yields the $`M`$ vectors
-$`\bar X^r`$, and the application-provided
-`widecheck_projection_histories(widehat_mean)` yields the $`K`$ length-$`N`$
-vectors $`q^r`$.
+In the example below, `x_replica_means` yields the $`M`$ vectors
+$`N^{-1}\sum_i X_{im}`$, and the application-provided
+`y_projection_histories(widecheck_overline_x)` yields the $`K`$ length-$`N`$
+projection histories with entries
+$`(\widecheck{\overline X})\mathbin{\cdot}Y_{ik}`$.
 
 ```python
 from tensErr import VectorNormGammaMethodHelper
@@ -94,12 +98,12 @@ helper = VectorNormGammaMethodHelper(
     widehat_count=M,
 )
 
-for replica_mean in widehat_replica_means:
+for replica_mean in x_replica_means:
     helper.accumulate_widehat_term(replica_mean)
 
-widehat_mean = helper.finalize_widehat()
+widecheck_overline_x = helper.finalize_widehat()
 
-for projection_history in widecheck_projection_histories(widehat_mean):
+for projection_history in y_projection_histories(widecheck_overline_x):
     helper.accumulate_widecheck_projection_term(projection_history)
 
 estimate = helper.compute(
@@ -110,7 +114,8 @@ estimate = helper.compute(
 
 Omit `widehat_count` to use the default $`M=\lfloor R/2\rfloor`$. The helper
 enforces the order of these operations but does not count contributions, so
-the caller must supply exactly $`M`$ widehat and $`K`$ widecheck replicas.
+the caller must supply exactly $`M`$ $`X`$-block and $`K`$ $`Y`$-block
+replicas.
 
 Let $`\bar Q`$ be the mean of the $`N`$ values $`Q_i`$, and let $`\delta_Q`$
 be the standard error returned by `gamma_method` for that scalar history.
@@ -139,8 +144,8 @@ The reported value and standard error are
 | `window` | Selected maximum lag; `None` on a combined estimate |
 | `sample_shapes` | Length of every original vector replica |
 | `replica_count` | Total replica count $`R`$ |
-| `widehat_count` | Widehat replica count $`M`$ |
-| `widecheck_count` | Widecheck replica count $`K=R-M`$ |
+| `widehat_count` | $`X`$-block replica count $`M`$ |
+| `widecheck_count` | $`Y`$-block replica count $`K=R-M`$ |
 | `autocovariance` | Propagated $`\Gamma_{\lVert x\rVert}(t)=K\Gamma_Q(t)/(R\lvert\bar Q\rvert)`$ when requested; otherwise `None` |
 | `autocorrelation` | $`\rho_Q(t)`$, which is unchanged by propagation to the norm, when requested; otherwise `None` |
 | `Q_bar_C_f` | Unpropagated $`C_Q`$ for a direct estimate; `None` on a combined estimate |
