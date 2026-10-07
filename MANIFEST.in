@@ -1,2 +1,5 @@
 # Include tests with their shared fixtures and mathematical conventions in sdists.
 recursive-include tests *.py *.md
+
+# Exclude Jupyter-generated checkpoint copies from source distributions.
+global-exclude .ipynb_checkpoints/*
