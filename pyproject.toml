@@ -4,9 +4,61 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tensErr"
-version = "0.4.1"
+version = "0.4.2"
 description = "tensErr computes uncertainties for tensor-valued Markov chain Monte Carlo ensembles using the gamma method."
-readme = "README.md"
+# The PyPI description mirrors README.md with portable mathematical notation.
+readme = { content-type = "text/markdown", text = '''
+# tensErr
+
+tensErr computes uncertainties for tensor-valued Markov chain Monte Carlo
+ensembles using the gamma method
+([Wolff, 2004](https://arxiv.org/abs/hep-lat/0306017),
+[Wolff, 2009](https://arxiv.org/pdf/0812.0677#page=19)).
+It works directly with PyTorch tensors, using the same interface on CPUs
+and accelerators.
+
+## Gamma method
+
+```python
+def gamma_method(
+    samples: torch.Tensor,
+    *,
+    gamma_method_s: float = 2.0,
+    accumulation_dtype: torch.dtype = torch.float64,
+    return_autocorrelation: bool = False,
+) -> GammaMethodEstimate: ...
+```
+
+`samples` may have shape `(N,)` for one chain, `(R,N)` for `R` chains,
+or `(*B,R,N)` for batched observables. Every chain must have the same
+retained length `N ≥ 2`.
+
+The default `gamma_method_s=2.0` selects the autocorrelation window
+automatically. Setting `gamma_method_s=0.0` disables autocorrelation analysis
+and reports the IID variance of the supplied entries.
+
+`gamma_method` returns a `GammaMethodEstimate` with the following fields:
+
+| Field | Meaning |
+| --- | --- |
+| `value` | Mean of the supplied samples |
+| `stderr` | Standard error of `value` |
+| `snr` | `abs(value)/stderr` if `stderr > 0`; `+∞` if `stderr = 0` |
+| `tau_int` | Integrated autocorrelation time τ<sub>int</sub> |
+| `C_f` | Summed autocovariance C<sub>f</sub> = 2τ<sub>int</sub>v<sub>f</sub>, where v<sub>f</sub> = Γ<sub>f</sub>(0) |
+| `stderr_of_stderr` | Estimated uncertainty of `stderr` |
+| `window` | Selected maximum lag |
+| `sample_shapes` | Retained length of every replica |
+| `autocovariance` | Γ<sub>f</sub>(t) with shape `(*B,⌊N/2⌋)` when requested; otherwise `None` |
+| `autocorrelation` | ρ<sub>f</sub>(t) with shape `(*B,⌊N/2⌋)` when requested; otherwise `None` |
+
+`GammaMethodEstimate` objects representing the same observable but arising from independent samples can be averaged to produce one `GammaMethodEstimate` using the overloaded `+` and `sum` operators. Error analysis can thus be performed using chunking, without loading all the samples simultaneously into memory. Combining estimates concatenates `sample_shapes`; `stderr_of_stderr`, `window`,
+`autocovariance`, and `autocorrelation` are `None` on the result.
+
+## Efficient norm and error for autocorrelated vectors
+
+Documentation under construction.
+''' }
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
