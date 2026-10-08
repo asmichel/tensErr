@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tensErr"
-version = "0.4.0"
-description = "Torch implementation of dense UWerr gamma-method mean estimates."
+version = "0.4.1"
+description = "tensErr computes uncertainties for tensor-valued Markov chain Monte Carlo ensembles using the gamma method."
 readme = "README.md"
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]
